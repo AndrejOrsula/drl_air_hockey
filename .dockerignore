@@ -1,0 +1,54 @@
+## Docker
+Dockerfile
+.dockerignore
+.docker/host
+.docker/*.bash
+
+## Dev Container
+.devcontainer/
+
+## Git
+**/.git
+**/.gitignore
+
+## GitHub
+.github/
+
+## Pre-commit
+.git_hooks
+.pre-commit-config.yaml
+
+## Markdown
+**/CHANGELOG.md
+
+### Inherited from gitignore ###
+## Python
+**/__pycache__/
+**/.pytest_cache/
+**/*.pcd
+**/*.py[cod]
+**/*.pyc
+**/*$py.class
+**/build/
+**/*.egg-info/
+
+## Virtual environments
+.env
+.venv
+env.bak/
+env/
+ENV/
+venv.bak/
+venv/
+
+## VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/*.code-snippets
+
+## Logs
+**/logs/
+**/logdir/

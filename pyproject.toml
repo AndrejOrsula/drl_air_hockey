@@ -1,0 +1,21 @@
+[project]
+name = "drl_air_hockey"
+version = "0.1.0"
+description = "Source code for participating in the 2023 Air Hockey Challenge"
+authors = [{ name = "Andrej Orsula", email = "andrej.orsula@uni.lu" }]
+classifiers = [
+  "Programming Language :: Python",
+  "License :: OSI Approved :: MIT License",
+]
+requires-python = ">=3.7"
+dependencies = [
+  "AirHockeyChallenge==1.0.0",
+  "dreamerv3 @ git+https://github.com/AndrejOrsula/dreamerv3.git",
+  "zmq",
+]
+
+[tool.setuptools]
+py-modules = ["drl_air_hockey"]
+
+[project.optional-dependencies]
+test = ["pytest"]
