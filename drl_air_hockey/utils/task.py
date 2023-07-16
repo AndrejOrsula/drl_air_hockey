@@ -14,7 +14,7 @@ class Task(enum.Enum):
     R7_PREPARE = enum.auto()
     R7_TOURNAMENT = enum.auto()
 
-    def from_env(env_name: str) -> Task:
+    def from_str(env_name: str) -> Task:
         """
         Args:
             env_name: The name of the environment.
@@ -29,13 +29,12 @@ class Task(enum.Enum):
             The task to be performed by the agent.
         """
 
-        if "7" in env_name:
-            if "hit" in env_name:
-                return Task.R7_HIT
-            elif "defend" in env_name:
-                return Task.R7_DEFEND
-            elif "prepare" in env_name:
-                return Task.R7_PREPARE
+        if "hit" in env_name:
+            return Task.R7_HIT
+        elif "defend" in env_name:
+            return Task.R7_DEFEND
+        elif "prepare" in env_name:
+            return Task.R7_PREPARE
         elif "tournament" in env_name:
             return Task.R7_TOURNAMENT
         else:
