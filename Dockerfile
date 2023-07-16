@@ -9,6 +9,32 @@ SHELL ["/bin/bash", "-c"]
 ARG WORKSPACE="/src"
 ENV WORKSPACE="${WORKSPACE}"
 
+### Re-build python with optimizations, if requested
+ARG OPTIMIZE_PYTHON=false
+ARG PYTHON_VERSION=3.8.17
+ENV PYTHON_SRC_DIR="${WORKSPACE}/python${PYTHON_VERSION}"
+RUN if [[ "${OPTIMIZE_PYTHON,,}" = true ]]; then \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
+    libgdm-dev \
+    libncurses5-dev \
+    libpcap-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    libtk8.6 \
+    wget && \
+    rm -rf /var/lib/apt/lists/* && \
+    wget -q "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" && \
+    mkdir -p "${PYTHON_SRC_DIR}" && \
+    tar xf "Python-${PYTHON_VERSION}.tar.xz" -C "${PYTHON_SRC_DIR}" --strip-components=1 && \
+    rm "Python-${PYTHON_VERSION}.tar.xz" && \
+    cd "${PYTHON_SRC_DIR}" && \
+    ./configure --enable-optimizations --with-lto --prefix="/usr" && \
+    make -j "$(nproc)" && \
+    make install ; \
+    fi
+
 ### Install dependencies
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends git wget && \
