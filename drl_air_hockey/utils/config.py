@@ -1,0 +1,1 @@
+INTERPOLATION_ORDER: int = -1
