@@ -3,9 +3,20 @@ from typing import Any, Dict
 
 from dreamerv3 import configs, embodied
 
+from drl_air_hockey.utils.rewards import DefendReward, HitReward, PrepareReward
 from drl_air_hockey.utils.task import Task as AirHockeyTask
 
 ENV = AirHockeyTask.from_str(environ.get("AIR_HOCKEY_ENV", default="7dof-hit"))
+
+REWARD_FUNCTION = None
+if ENV == AirHockeyTask.R7_HIT:
+    REWARD_FUNCTION = HitReward()
+elif ENV == AirHockeyTask.R7_DEFEND:
+    REWARD_FUNCTION = DefendReward()
+elif ENV == AirHockeyTask.R7_PREPARE:
+    REWARD_FUNCTION = PrepareReward()
+else:
+    raise ValueError(f"Unknown environment name: {ENV}")
 
 RENDER: bool = False
 EPISODE_MAX_STEPS: int = 1024

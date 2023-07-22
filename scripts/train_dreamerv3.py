@@ -15,6 +15,7 @@ from drl_air_hockey.utils.config import (
     EPISODE_MAX_STEPS,
     INTERPOLATION_ORDER,
     RENDER,
+    REWARD_FUNCTION,
     config_dreamerv3,
 )
 from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
@@ -22,8 +23,6 @@ from drl_air_hockey.utils.train import train_parallel
 
 NOISE_ENABLED = True
 NOISE_STD = 0.04
-
-REWARD_FUNCTION = None
 
 
 def main(argv=None):
