@@ -209,13 +209,14 @@ class SpaceRAgent(AgentBase):
             self.previous_ee_disp = None
 
         if self.evaluate:
-            with self.cv_new_obs_avail:
-                self.cv_new_obs_avail.wait(timeout=self.STEP_TIME_LIMIT)
-            with self.cv_new_act_avail:
-                self.cv_new_act_avail.wait(timeout=self.STEP_TIME_LIMIT)
             self.policy_driver.reset()
-            self.inference_in_progress = False
-            self.new_obs_in_queue = False
+            if self.ASYNC_INFERENCE:
+                with self.cv_new_obs_avail:
+                    self.cv_new_obs_avail.wait(timeout=self.STEP_TIME_LIMIT)
+                with self.cv_new_act_avail:
+                    self.cv_new_act_avail.wait(timeout=self.STEP_TIME_LIMIT)
+                self.inference_in_progress = False
+                self.new_obs_in_queue = False
 
     #### ~Evaluation only~ ####
 
