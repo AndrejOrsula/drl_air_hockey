@@ -31,7 +31,7 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
             {
                 "logdir": path.join(
                     path.dirname(path.dirname(path.abspath(path.dirname(__file__)))),
-                    "logdir",
+                    "logdir_" + ENV.to_str().lower().replace("7dof-", ""),
                 ),
                 "jax.platform": "cpu",
                 "jax.precision": "float32",
@@ -82,7 +82,7 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
                 "run.steps": 5e7,
                 "run.log_every": 1024,
                 "run.train_ratio": 256,
-                "batch_size": 16,
+                "batch_size": 2,
                 "batch_length": 64,
             }
         )
