@@ -33,21 +33,27 @@ class SpaceRAgent(AgentBase):
         AirHockeyTask.R7_TOURNAMENT: None,
     }
 
+    ASYNC_INFERENCE: bool = False
+
     STEP_TIME_LIMIT: float = 0.02 - 0.002  # 20 ms (2 ms reserved for extra processing)
 
-    OPERATING_AREA_MIN_DISTANCE_FROM_CENTRE: float = 0.12
+    # MAX_DISPLACEMENT_LIMIT_ENABLED: bool = False
+    # MAX_DISPLACEMENT_PER_STEP: float = 0.25
+    VEL_CONSTRAINTS_SCALING_FACTOR: float = 0.5
+    FILTER_ACTIONS_ENABLED: bool = True
+    FILTER_ACTIONS_COEFFICIENT: float = 0.05
 
-    MAX_DISPLACEMENT_PER_STEP: float = 0.125
-    FILTER_ACTIONS_COEFF: float = 0.5
+    OPERATING_AREA_OFFSET_FROM_CENTRE: float = 0.15
+    OPERATING_AREA_OFFSET_FROM_TABLE: float = 0.025
 
-    ASYNC_INFERENCE: bool = False
+    # Lower is more strict (positive only)
+    Z_POSITION_CONTROL_TOLERANCE: float = 0.75
 
     def __init__(
         self,
         env_info: Dict[str, Any],
         agent_id: int = 1,
         interpolation_order: Optional[int] = INTERPOLATION_ORDER,
-        filter_actions: bool = True,
         train: bool = False,
         **kwargs,
     ):
@@ -60,13 +66,10 @@ class SpaceRAgent(AgentBase):
         ## Get information about the agent
         self.agent_id = agent_id
         self.interpolation_order = interpolation_order
-        self.filter_actions = filter_actions
 
         ## For evaluation, the agent is fully internal and loaded from a checkpoint.
         self.evaluate = not train
         if self.evaluate:
-            print("Agent is run in evaluation mode.")
-
             # Patch DreamerV3
             _apply_monkey_patch_dreamerv3()
 
@@ -104,8 +107,6 @@ class SpaceRAgent(AgentBase):
 
             self._original_interval = gsi()
             self._inference_interval = self.STEP_TIME_LIMIT
-        else:
-            print("Agent is run in training mode.")
 
         self.reset()
 
@@ -197,16 +198,13 @@ class SpaceRAgent(AgentBase):
         self.policy_driver.reset()
 
     def reset(self):
-        self.act = np.array(
-            [[0.0, -0.196, 0.0, -1.8436, 0.0, 0.9704, 0.0], [0.0] * 7],
-            dtype=self.action_space.dtype,
-        )
+        self.act = np.zeros(self.action_space.shape, dtype=self.action_space.dtype)
         self.obs = np.zeros(
             self.observation_space.shape, dtype=self.observation_space.dtype
         )
 
-        if self.filter_actions:
-            self.previous_ee_disp = None
+        if self.FILTER_ACTIONS_ENABLED:
+            self.previous_ee_pos_xy_norm = None
 
         if self.evaluate:
             self.policy_driver.reset()
@@ -279,19 +277,32 @@ class SpaceRAgent(AgentBase):
         assert action.shape == self.action_space.shape
         assert max(action) <= 1.0 and min(action) >= -1.0
 
-        # Determine the desired displacement
-        target_ee_disp_xy = action[:2] - self.current_ee_pos_xy_norm[:2]
+        # # Limit the displacement to a pre-defined maximum for each step
+        # if MAX_DISPLACEMENT_LIMIT_ENABLED:
+        #     target_ee_disp_xy = action[:2] - self.current_ee_pos_xy_norm[:2]
+        #     disp_xy_norm = np.linalg.norm(target_ee_disp_xy)
+        #     if disp_xy_norm > self.MAX_DISPLACEMENT_PER_STEP:
+        #         target_ee_disp_xy *= self.MAX_DISPLACEMENT_PER_STEP / disp_xy_norm
+        #     target_ee_pos_xy = self.current_ee_pos_xy_norm[:2] + target_ee_disp_xy
+        # else:
+        #     target_ee_pos_xy = action[:2]
+        target_ee_pos_xy = action[:2]
 
-        # Limit the displacement to a pre-defined maximum for each step
-        disp_xy_norm = np.linalg.norm(target_ee_disp_xy)
-        if disp_xy_norm > self.MAX_DISPLACEMENT_PER_STEP:
-            target_ee_disp_xy *= self.MAX_DISPLACEMENT_PER_STEP / disp_xy_norm
+        # Filter the target position
+        if self.FILTER_ACTIONS_ENABLED:
+            if self.previous_ee_pos_xy_norm is None:
+                self.previous_ee_pos_xy_norm = self.current_ee_pos_xy_norm
+            target_ee_pos_xy = (
+                self.FILTER_ACTIONS_COEFFICIENT * self.previous_ee_pos_xy_norm
+                + (1 - self.FILTER_ACTIONS_COEFFICIENT) * target_ee_pos_xy
+            )
+            self.previous_ee_pos_xy_norm = target_ee_pos_xy
 
         # Unnormalize the action and combine with desired height
         target_ee_pos = np.array(
             [
                 *self._unnormalize_value(
-                    self.current_ee_pos_xy_norm[:2] + target_ee_disp_xy,
+                    target_ee_pos_xy,
                     low_out=self.ee_table_minmax[:, 0],
                     high_out=self.ee_table_minmax[:, 1],
                 ),
@@ -300,13 +311,41 @@ class SpaceRAgent(AgentBase):
             dtype=np.float32,
         )
 
-        # Calculate the desired joint disp via Inverse Jacobian method
+        # Calculate the target joint disp via Inverse Jacobian method
         joint_disp = self.servo(target_ee_pos)
 
-        # Update the target joint positions and velocities
-        joint_pos = self.current_joint_pos + joint_disp
+        # Convert to joint velocities based on joint displacements
         joint_vel = joint_disp / self.sim_dt
 
+        # Limit the joint velocities to the maximum allowed
+        joints_below_vel_limit = joint_vel < self.robot_joint_vel_limit_scaled[0, :]
+        joints_above_vel_limit = joint_vel > self.robot_joint_vel_limit_scaled[1, :]
+        joints_outside_vel_limit = np.logical_or(
+            joints_below_vel_limit, joints_above_vel_limit
+        )
+        if np.any(joints_outside_vel_limit):
+            downscaling_factor = 1.0
+            for joint_i in np.where(joints_outside_vel_limit)[0]:
+                downscaling_factor = min(
+                    downscaling_factor,
+                    1
+                    - (
+                        (
+                            joint_vel[joint_i]
+                            - self.robot_joint_vel_limit_scaled[
+                                int(joints_above_vel_limit[joint_i]), joint_i
+                            ]
+                        )
+                        / joint_vel[joint_i]
+                    ),
+                )
+            # Scale down the joint velocities to the maximum allowed limits
+            joint_vel *= downscaling_factor
+
+        # Update the target joint positions based on joint velocities
+        joint_pos = self.current_joint_pos + (self.sim_dt * joint_vel)
+
+        # Assign the action
         if self.interpolation_order in [1, 2]:
             action = np.array(joint_pos)
         else:
@@ -317,20 +356,14 @@ class SpaceRAgent(AgentBase):
     def servo(self, target_ee_pos):
         target_ee_disp = target_ee_pos - self.current_ee_pos
 
-        if self.filter_actions:
-            if self.previous_ee_disp is None:
-                self.previous_ee_disp = self.current_ee_pos
-            target_ee_disp = (
-                self.FILTER_ACTIONS_COEFF * self.previous_ee_disp
-                + (1 - self.FILTER_ACTIONS_COEFF) * target_ee_disp
-            )
-            self.previous_ee_disp = target_ee_disp
-
         jac = self.jacobian(self.current_joint_pos)[:3]
         jac_pinv = np.linalg.pinv(jac)
 
+        # Weighted average of joint displacements, such that Z position is closely maintained
         s = np.linalg.svd(jac, compute_uv=False)
-        s = 1 / np.sqrt(s)
+        s[:2] = np.mean(s[:2])
+        s[2] *= self.Z_POSITION_CONTROL_TOLERANCE
+        s = 1 / s
         s = s / np.sum(s)
 
         joint_disp = jac_pinv * target_ee_disp
@@ -386,7 +419,6 @@ class SpaceRAgent(AgentBase):
             "ee_desired_height"
         ]
         self.robot_base_frame: np.ndarray = self.env_info["robot"]["base_frame"]
-        # TODO: check if limits need to be reduced to 95%
         self.robot_joint_pos_limit: np.ndarray = self.env_info["robot"][
             "joint_pos_limit"
         ]
@@ -396,6 +428,9 @@ class SpaceRAgent(AgentBase):
         self.robot_joint_acc_limit: np.ndarray = self.env_info["robot"][
             "joint_acc_limit"
         ]
+        self.robot_joint_vel_limit_scaled = (
+            self.VEL_CONSTRAINTS_SCALING_FACTOR * self.robot_joint_vel_limit
+        )
 
         # Information about the simulation
         self.sim_dt: float = self.env_info["dt"]
@@ -416,18 +451,18 @@ class SpaceRAgent(AgentBase):
                     np.abs(self.robot_base_frame[0][0, 3])
                     - (self.table_size[0] / 2)
                     + self.mallet_radius
-                    + self.puck_radius,
+                    + self.OPERATING_AREA_OFFSET_FROM_TABLE,
                     np.abs(self.robot_base_frame[0][0, 3])
                     - self.mallet_radius
-                    - self.OPERATING_AREA_MIN_DISTANCE_FROM_CENTRE,
+                    - self.OPERATING_AREA_OFFSET_FROM_CENTRE,
                 ],
                 [
                     -(self.table_size[1] / 2)
                     + self.mallet_radius
-                    + (self.puck_radius / 3.0),
+                    + self.OPERATING_AREA_OFFSET_FROM_TABLE,
                     (self.table_size[1] / 2)
                     - self.mallet_radius
-                    - (self.puck_radius / 3.0),
+                    - self.OPERATING_AREA_OFFSET_FROM_TABLE,
                 ],
             ]
         )
