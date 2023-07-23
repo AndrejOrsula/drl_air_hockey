@@ -53,7 +53,7 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
                 "rssm.classes": 16,
                 # actor
                 "actor.layers": 2,
-                "actor.units": 256,
+                "actor.units": 192,
                 # critic
                 "critic.layers": 3,
                 "critic.units": 512,
