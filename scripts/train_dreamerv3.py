@@ -22,7 +22,7 @@ from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
 from drl_air_hockey.utils.train import train_parallel
 
 NOISE_ENABLED = True
-NOISE_STD = 0.04
+NOISE_STD = 0.025
 
 
 def main(argv=None):
