@@ -13,8 +13,6 @@ IMAGE_NAME="swr.${swr_server}.myhuaweicloud.eu/his_air_hockey_competition_eu/sol
 ## Build the submission image
 REPOSITORY_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
 DOT_DOCKER_DIR="${REPOSITORY_DIR}/.docker"
-# Build parent image
-"${DOT_DOCKER_DIR}/build_parent.bash" --target eval
 # Build submission image
 "${DOT_DOCKER_DIR}/build.bash" --tag "${IMAGE_NAME}"
 
