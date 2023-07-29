@@ -21,8 +21,11 @@ from drl_air_hockey.utils.config import (
 from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
 from drl_air_hockey.utils.train import train_parallel
 
-NOISE_ENABLED = True
-NOISE_STD = 0.025
+AGENT_SCHEME: int = 1
+CONFIG_PRESET: int = 1
+
+OBSERVATION_NOISE_ENABLED: bool = False
+NOISE_STD: float = 0.025
 
 
 def main(argv=None):
@@ -33,7 +36,7 @@ def main(argv=None):
     warnings.filterwarnings("ignore", ".*truncated to dtype int32.*")
 
     # Get config
-    config = config_dreamerv3(train=True)
+    config = config_dreamerv3(train=True, preset=CONFIG_PRESET)
     config = embodied.Flags(config).parse(argv=[])
 
     args = embodied.Config(
@@ -178,8 +181,14 @@ def make_env(
     )
 
     # Make the agent transparent to the environment
-    env_agent = SpaceRAgent(env.env_info, train=True)
+    env_agent = SpaceRAgent(
+        env.env_info,
+        train=True,
+        scheme=AGENT_SCHEME,
+        max_episode_steps=EPISODE_MAX_STEPS,
+    )
     env._agent = env_agent
+    env.scheme = env_agent.scheme
 
     # Wrap the environment into embodied batch env
     env = EmbodiedChallengeWrapper(env)
@@ -211,17 +220,14 @@ def _apply_monkey_patch_env_step():
     _original_step = AirHockeyChallengeWrapper.step
 
     def new_step(self, action):
-        if NOISE_ENABLED:
-            action = np.clip(
-                action + np.random.normal(0, NOISE_STD, size=action.shape), -1, 1
-            )
-
         action = self._agent.process_raw_act(action=action)
         obs, reward, done, info = _original_step(self, action)
         obs = self._agent.process_raw_obs(obs=obs)
 
-        if NOISE_ENABLED:
-            obs = np.clip(obs + np.random.normal(0, NOISE_STD, size=obs.shape), -1, 1)
+        if OBSERVATION_NOISE_ENABLED:
+            obs = np.clip(
+                obs + np.random.normal(0.0, NOISE_STD, size=obs.shape), -1.0, 1.0
+            )
 
         if RENDER:
             self.render()

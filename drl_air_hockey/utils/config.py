@@ -68,23 +68,77 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
                 "disag_head.units": 512,
             }
         )
+    elif preset == 2:
+        config = config.update(
+            {
+                "logdir": path.join(
+                    path.dirname(path.dirname(path.abspath(path.dirname(__file__)))),
+                    "logdir_p2_" + ENV.to_str().lower().replace("7dof-", ""),
+                ),
+                "jax.platform": "cpu",
+                "jax.precision": "float16",
+                "jax.prealloc": True,
+                "imag_horizon": 50,
+                # encoder/decoder obs keys
+                "encoder.mlp_keys": "vector",
+                "decoder.mlp_keys": "vector",
+                # encoder
+                "encoder.mlp_layers": 2,
+                "encoder.mlp_units": 64,
+                # decoder
+                "decoder.mlp_layers": 2,
+                "decoder.mlp_units": 64,
+                # rssm
+                "rssm.deter": 64,
+                "rssm.units": 64,
+                "rssm.stoch": 32,
+                "rssm.classes": 32,
+                # actor
+                "actor.layers": 2,
+                "actor.units": 64,
+                # critic
+                "critic.layers": 2,
+                "critic.units": 64,
+                # reward
+                "reward_head.layers": 2,
+                "reward_head.units": 64,
+                # cont
+                "cont_head.layers": 2,
+                "cont_head.units": 64,
+                # disag
+                "disag_head.layers": 2,
+                "disag_head.units": 64,
+            }
+        )
     else:
         raise ValueError(f"Unknown preset: {preset}")
 
     if train:
-        num_envs = max(1, min(cpu_count() - 4, cpu_count() // 2))
+        num_envs = 4
+
+        train_ratio_multiplier = 1.5 if ENV == AirHockeyTask.R7_HIT else 1.0
+
         config = config.update(
             {
                 "jax.platform": "gpu",
                 "envs.amount": num_envs,
                 "run.actor_batch": num_envs,
-                "replay_size": 1e6,
+                "replay_size": 2e6,
                 "run.steps": 5e7,
                 "run.log_every": 1024,
-                "run.train_ratio": 256,
-                "batch_size": 2,
+                "run.train_ratio": int(train_ratio_multiplier * 256),
+                "batch_size": 16,
                 "batch_length": 64,
             }
         )
+
+        if preset == 2:
+            config = config.update(
+                {
+                    "run.train_ratio": int(train_ratio_multiplier * 512),
+                    "batch_size": 80,
+                    "batch_length": 64,
+                }
+            )
 
     return config

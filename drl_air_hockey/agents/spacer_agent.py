@@ -47,7 +47,7 @@ class SpaceRAgent(AgentBase):
     OPERATING_AREA_OFFSET_FROM_TABLE: float = 0.025
 
     # Lower is more strict (positive only)
-    Z_POSITION_CONTROL_TOLERANCE: float = 0.75
+    Z_POSITION_CONTROL_TOLERANCE: float = 0.5
 
     def __init__(
         self,
@@ -55,6 +55,8 @@ class SpaceRAgent(AgentBase):
         agent_id: int = 1,
         interpolation_order: Optional[int] = INTERPOLATION_ORDER,
         train: bool = False,
+        scheme: int = 1,
+        max_episode_steps: int = 1024,
         **kwargs,
     ):
         ## Chain up the parent implementation
@@ -66,6 +68,11 @@ class SpaceRAgent(AgentBase):
         ## Get information about the agent
         self.agent_id = agent_id
         self.interpolation_order = interpolation_order
+        self.scheme = scheme
+        if self.scheme not in [1, 2]:
+            raise ValueError("Invalid scheme")
+        elif self.scheme == 2:
+            self.max_episode_steps = max_episode_steps
 
         ## For evaluation, the agent is fully internal and loaded from a checkpoint.
         self.evaluate = not train
@@ -112,10 +119,15 @@ class SpaceRAgent(AgentBase):
 
     @property
     def observation_space(self):
+        if self.scheme == 1:
+            n_obs = 7
+        elif self.scheme == 2:
+            n_obs = 10
+
         return gym.spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(7,),
+            shape=(n_obs,),
             dtype=np.float32,
         )
 
@@ -216,6 +228,11 @@ class SpaceRAgent(AgentBase):
                 self.inference_in_progress = False
                 self.new_obs_in_queue = False
 
+        if self.scheme == 2:
+            self.episode_step = 0
+            self.previous_ee_pos_xy_norm = None
+            self.previous_puck_pos_xy_norm = None
+
     #### ~Evaluation only~ ####
 
     ######### Common ##########
@@ -236,9 +253,8 @@ class SpaceRAgent(AgentBase):
 
         ## Puck's state
         # Position
-        puck_pos_xy: np.ndarray = self.get_puck_pos(obs)[:2]
-        puck_pos_xy = self._normalize_value(
-            puck_pos_xy,
+        puck_pos_xy_norm = self._normalize_value(
+            self.get_puck_pos(obs)[:2],
             low_in=self.puck_table_minmax[:, 0],
             high_in=self.puck_table_minmax[:, 1],
         )
@@ -255,20 +271,54 @@ class SpaceRAgent(AgentBase):
         )
 
         # Form the observation vector
-        obs = np.clip(
-            np.concatenate(
-                (
-                    ee_pos_xy_norm,
-                    puck_pos_xy,
-                    puck_vel_xy_theta,
+        if self.scheme == 1:
+            obs = np.clip(
+                np.concatenate(
+                    (
+                        ee_pos_xy_norm,
+                        puck_pos_xy_norm,
+                        puck_vel_xy_theta,
+                    )
+                ),
+                -1.0,
+                1.0,
+            )
+        elif self.scheme == 2:
+            # Keep track of episode progress to provide the agent with information about time
+            episode_progress = self.episode_step / self.max_episode_steps
+            self.episode_step += 1
+
+            # For the first step, use previous position of ee and derived position of puck based on its velocity
+            if self.previous_ee_pos_xy_norm is None:
+                self.previous_ee_pos_xy_norm = ee_pos_xy_norm
+                self.previous_puck_pos_xy_norm = (
+                    puck_pos_xy_norm - self.sim_dt * puck_vel_xy_theta[:2]
                 )
-            ),
-            -1.0,
-            1.0,
-        )
+
+            # Use only the z-rotation of the puck's velocity from observations
+            puck_vel_z_rot = puck_vel_xy_theta[2]
+
+            obs = np.clip(
+                np.concatenate(
+                    (
+                        [episode_progress],
+                        self.previous_ee_pos_xy_norm,
+                        ee_pos_xy_norm,
+                        self.previous_puck_pos_xy_norm,
+                        puck_pos_xy_norm,
+                        [puck_vel_z_rot],
+                    )
+                ),
+                -1.0,
+                1.0,
+            )
+
+            # Update previous positions
+            self.previous_ee_pos_xy_norm = ee_pos_xy_norm.copy()
+            self.previous_puck_pos_xy_norm = puck_pos_xy_norm.copy()
 
         assert obs.shape == self.observation_space.shape
-        assert max(obs) <= 1.0 and min(obs) >= -1.0
+        # assert max(obs) <= 1.0 and min(obs) >= -1.0
 
         return obs
 
