@@ -1,6 +1,5 @@
 import os
 import time
-from collections import deque
 from sys import getswitchinterval as gsi
 from sys import setswitchinterval as ssi
 from threading import Condition, Lock, Thread
@@ -31,7 +30,7 @@ class SpaceRAgent(AgentBase):
         AirHockeyTask.R7_HIT: os.path.join(DIR_MODELS, "hit.ckpt"),
         AirHockeyTask.R7_DEFEND: os.path.join(DIR_MODELS, "defend.ckpt"),
         AirHockeyTask.R7_PREPARE: os.path.join(DIR_MODELS, "prepare.ckpt"),
-        AirHockeyTask.R7_TOURNAMENT: os.path.join(DIR_MODELS, "tournament.ckpt"),
+        AirHockeyTask.R7_TOURNAMENT: None,
     }
 
     ASYNC_INFERENCE: bool = False
@@ -57,8 +56,7 @@ class SpaceRAgent(AgentBase):
         interpolation_order: Optional[int] = INTERPOLATION_ORDER,
         train: bool = False,
         scheme: int = 1,
-        max_episode_steps: int = 500,
-        n_stacked_obs: int = 5,
+        max_episode_steps: int = 1024,
         **kwargs,
     ):
         ## Chain up the parent implementation
@@ -71,11 +69,10 @@ class SpaceRAgent(AgentBase):
         self.agent_id = agent_id
         self.interpolation_order = interpolation_order
         self.scheme = scheme
-        if self.scheme not in [1]:
+        if self.scheme not in [1, 2]:
             raise ValueError("Invalid scheme")
-        self.max_episode_steps = max_episode_steps
-        self.n_stacked_obs = n_stacked_obs
-        self.stacked_obs = deque([], maxlen=self.n_stacked_obs)
+        elif self.scheme == 2:
+            self.max_episode_steps = max_episode_steps
 
         ## For evaluation, the agent is fully internal and loaded from a checkpoint.
         self.evaluate = not train
@@ -122,7 +119,10 @@ class SpaceRAgent(AgentBase):
 
     @property
     def observation_space(self):
-        n_obs = 1 + 6 * self.n_stacked_obs
+        if self.scheme == 1:
+            n_obs = 7
+        elif self.scheme == 2:
+            n_obs = 10
 
         return gym.spaces.Box(
             low=-1.0,
@@ -228,77 +228,97 @@ class SpaceRAgent(AgentBase):
                 self.inference_in_progress = False
                 self.new_obs_in_queue = False
 
-        self.episode_step = 0
-        self.stacked_obs.clear()
+        if self.scheme == 2:
+            self.episode_step = 0
+            self.previous_ee_pos_xy_norm = None
+            self.previous_puck_pos_xy_norm = None
 
     #### ~Evaluation only~ ####
 
     ######### Common ##########
 
     def process_raw_obs(self, obs: np.ndarray) -> np.ndarray:
-        # Player's joint states
-        # Note: Not used in observation vector, but used for action processing
-        self.current_joint_pos = self.get_joint_pos(obs)
-
-        # Note: All obs are normalized with respect to table size in the same manner
-
-        # Player's end-effector position
+        ## Player's end-effector state
         self.current_ee_pos = self.get_ee_pose(obs)[0]
         ee_pos_xy_norm = self._normalize_value(
             self.current_ee_pos[:2],
-            low_in=self.puck_table_minmax[:, 0],
-            high_in=self.puck_table_minmax[:, 1],
+            low_in=self.ee_table_minmax[:, 0],
+            high_in=self.ee_table_minmax[:, 1],
         )
         self.current_ee_pos_xy_norm = ee_pos_xy_norm
 
-        # Opponent's end-effector position
-        opponent_ee_pos_xy_norm = self._normalize_value(
-            self.get_opponent_ee_pos(obs)[:2],
-            low_in=self.puck_table_minmax[:, 0],
-            high_in=self.puck_table_minmax[:, 1],
-        )
+        ## Player's joint states
+        # Note: Not used in observation vector, but used for action processing
+        self.current_joint_pos = self.get_joint_pos(obs)
 
-        # Puck's position
+        ## Puck's state
+        # Position
         puck_pos_xy_norm = self._normalize_value(
             self.get_puck_pos(obs)[:2],
             low_in=self.puck_table_minmax[:, 0],
             high_in=self.puck_table_minmax[:, 1],
         )
-
-        # Concatenate into a single observation vector
-        obs_new = np.clip(
-            np.concatenate(
-                (
-                    puck_pos_xy_norm,
-                    ee_pos_xy_norm,
-                    opponent_ee_pos_xy_norm,
-                )
+        # Velocity (linear and angular)
+        puck_vel_xy_theta: np.ndarray = self.get_puck_vel(obs)
+        puck_vel_xy_theta = self._normalize_value(
+            puck_vel_xy_theta,
+            low_in=np.array(
+                [-2 * self.table_size[0], -2 * self.table_size[1], -8 * np.pi]
             ),
-            -1.0,
-            1.0,
+            high_in=np.array(
+                [2 * self.table_size[0], 2 * self.table_size[1], 8 * np.pi]
+            ),
         )
 
-        # Append to stacked observation to preserve temporal information
-        self.stacked_obs.append(obs_new)
-        while not self.n_stacked_obs == len(self.stacked_obs):
-            # For the first buffer after reset, fill with identical observations until deque is full
-            self.stacked_obs.append(obs_new.copy())
-
-        # Compute the episode progress as a number in [-1, 1] range
-        episode_progress = (
-            2.0 * np.clip(self.episode_step / self.max_episode_steps, 0.0, 1.0)
-        ) - 1.0
-        self.episode_step += 1
-
-        # Concaternate episode progress with all temporally-stacked observations
-        obs = np.concatenate(
-            (
-                [episode_progress],
-                np.array(self.stacked_obs, dtype=np.float32).flatten("F"),
+        # Form the observation vector
+        if self.scheme == 1:
+            obs = np.clip(
+                np.concatenate(
+                    (
+                        ee_pos_xy_norm,
+                        puck_pos_xy_norm,
+                        puck_vel_xy_theta,
+                    )
+                ),
+                -1.0,
+                1.0,
             )
-        )
+        elif self.scheme == 2:
+            # Keep track of episode progress to provide the agent with information about time
+            episode_progress = self.episode_step / self.max_episode_steps
+            self.episode_step += 1
+
+            # For the first step, use previous position of ee and derived position of puck based on its velocity
+            if self.previous_ee_pos_xy_norm is None:
+                self.previous_ee_pos_xy_norm = ee_pos_xy_norm
+                self.previous_puck_pos_xy_norm = (
+                    puck_pos_xy_norm - self.sim_dt * puck_vel_xy_theta[:2]
+                )
+
+            # Use only the z-rotation of the puck's velocity from observations
+            puck_vel_z_rot = puck_vel_xy_theta[2]
+
+            obs = np.clip(
+                np.concatenate(
+                    (
+                        [episode_progress],
+                        self.previous_ee_pos_xy_norm,
+                        ee_pos_xy_norm,
+                        self.previous_puck_pos_xy_norm,
+                        puck_pos_xy_norm,
+                        [puck_vel_z_rot],
+                    )
+                ),
+                -1.0,
+                1.0,
+            )
+
+            # Update previous positions
+            self.previous_ee_pos_xy_norm = ee_pos_xy_norm.copy()
+            self.previous_puck_pos_xy_norm = puck_pos_xy_norm.copy()
 
         assert obs.shape == self.observation_space.shape
+        # assert max(obs) <= 1.0 and min(obs) >= -1.0
 
         return obs
 
@@ -483,6 +503,7 @@ class SpaceRAgent(AgentBase):
                     + self.mallet_radius
                     + self.OPERATING_AREA_OFFSET_FROM_TABLE,
                     np.abs(self.robot_base_frame[0][0, 3])
+                    - self.mallet_radius
                     - self.OPERATING_AREA_OFFSET_FROM_CENTRE,
                 ],
                 [
@@ -553,9 +574,6 @@ class SpaceRAgent(AgentBase):
 
     def get_ee_pose(self, obs):
         return self.forward_kinematics(self.get_joint_pos(obs))
-
-    def get_opponent_ee_pos(self, obs):
-        return obs[self.env_info["opponent_ee_ids"]]
 
     ####### ~Utilities~ #######
 

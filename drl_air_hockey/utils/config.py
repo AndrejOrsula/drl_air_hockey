@@ -3,13 +3,20 @@ from typing import Any, Dict
 
 from dreamerv3 import configs, embodied
 
-from drl_air_hockey.utils.rewards import DefendReward, HitReward, PrepareReward
+from drl_air_hockey.utils.rewards import (
+    DefendReward,
+    HitReward,
+    PrepareReward,
+    TournamentReward,
+)
 from drl_air_hockey.utils.task import Task as AirHockeyTask
 
-ENV = AirHockeyTask.from_str(environ.get("AIR_HOCKEY_ENV", default="7dof-hit"))
+ENV = AirHockeyTask.from_str(environ.get("AIR_HOCKEY_ENV", default="tournament"))
 
 REWARD_FUNCTION = None
-if ENV == AirHockeyTask.R7_HIT:
+if ENV == AirHockeyTask.R7_TOURNAMENT:
+    REWARD_FUNCTION = TournamentReward()
+elif ENV == AirHockeyTask.R7_HIT:
     REWARD_FUNCTION = HitReward()
 elif ENV == AirHockeyTask.R7_DEFEND:
     REWARD_FUNCTION = DefendReward()
@@ -19,7 +26,7 @@ else:
     raise ValueError(f"Unknown environment name: {ENV}")
 
 RENDER: bool = False
-EPISODE_MAX_STEPS: int = 1024
+EPISODE_MAX_STEPS: int = 500
 INTERPOLATION_ORDER: int = -1
 
 
@@ -31,7 +38,7 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
             {
                 "logdir": path.join(
                     path.dirname(path.dirname(path.abspath(path.dirname(__file__)))),
-                    "logdir_" + ENV.to_str().lower().replace("7dof-", ""),
+                    "logdir_p1_" + ENV.to_str().lower().replace("7dof-", ""),
                 ),
                 "jax.platform": "cpu",
                 "jax.precision": "float32",
@@ -42,81 +49,37 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
                 "decoder.mlp_keys": "vector",
                 # encoder
                 "encoder.mlp_layers": 2,
-                "decoder.mlp_layers": 2,
+                "encoder.mlp_units": 256,
                 # decoder
-                "encoder.mlp_units": 192,
-                "decoder.mlp_units": 192,
+                "decoder.mlp_layers": 2,
+                "decoder.mlp_units": 256,
                 # rssm
                 "rssm.deter": 256,
                 "rssm.units": 256,
-                "rssm.stoch": 16,
-                "rssm.classes": 16,
-                # actor
-                "actor.layers": 2,
-                "actor.units": 192,
-                # critic
-                "critic.layers": 3,
-                "critic.units": 512,
-                # reward
-                "reward_head.layers": 3,
-                "reward_head.units": 512,
-                # cont
-                "cont_head.layers": 3,
-                "cont_head.units": 512,
-                # disag
-                "disag_head.layers": 3,
-                "disag_head.units": 512,
-            }
-        )
-    elif preset == 2:
-        config = config.update(
-            {
-                "logdir": path.join(
-                    path.dirname(path.dirname(path.abspath(path.dirname(__file__)))),
-                    "logdir_p2_" + ENV.to_str().lower().replace("7dof-", ""),
-                ),
-                "jax.platform": "cpu",
-                "jax.precision": "float16",
-                "jax.prealloc": True,
-                "imag_horizon": 50,
-                # encoder/decoder obs keys
-                "encoder.mlp_keys": "vector",
-                "decoder.mlp_keys": "vector",
-                # encoder
-                "encoder.mlp_layers": 2,
-                "encoder.mlp_units": 64,
-                # decoder
-                "decoder.mlp_layers": 2,
-                "decoder.mlp_units": 64,
-                # rssm
-                "rssm.deter": 64,
-                "rssm.units": 64,
                 "rssm.stoch": 32,
                 "rssm.classes": 32,
                 # actor
                 "actor.layers": 2,
-                "actor.units": 64,
+                "actor.units": 128,
                 # critic
                 "critic.layers": 2,
-                "critic.units": 64,
+                "critic.units": 128,
                 # reward
                 "reward_head.layers": 2,
-                "reward_head.units": 64,
+                "reward_head.units": 128,
                 # cont
                 "cont_head.layers": 2,
-                "cont_head.units": 64,
+                "cont_head.units": 128,
                 # disag
                 "disag_head.layers": 2,
-                "disag_head.units": 64,
+                "disag_head.units": 128,
             }
         )
     else:
         raise ValueError(f"Unknown preset: {preset}")
 
     if train:
-        num_envs = 4
-
-        train_ratio_multiplier = 1.5 if ENV == AirHockeyTask.R7_HIT else 1.0
+        num_envs = 6
 
         config = config.update(
             {
@@ -126,19 +89,10 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
                 "replay_size": 2e6,
                 "run.steps": 5e7,
                 "run.log_every": 1024,
-                "run.train_ratio": int(train_ratio_multiplier * 256),
-                "batch_size": 16,
+                "run.train_ratio": 256,
+                "batch_size": 64,
                 "batch_length": 64,
             }
         )
-
-        if preset == 2:
-            config = config.update(
-                {
-                    "run.train_ratio": int(train_ratio_multiplier * 512),
-                    "batch_size": 80,
-                    "batch_length": 64,
-                }
-            )
 
     return config

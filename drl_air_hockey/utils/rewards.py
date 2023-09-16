@@ -1,6 +1,58 @@
 import numpy as np
 
 
+class TournamentReward:
+    PENALTY_THRESHOLD: int = 5.0
+
+    def __init__(self):
+        self.penalty_timer = 0.0
+        self.penalty_side = None
+
+    def __call__(self, mdp, state, action, next_state, absorbing):
+        puck_pos, puck_vel = mdp.get_puck(next_state)
+
+        ## Penalty checking (timer update)
+        # Determine which side the puck is on on the first step
+        if self.penalty_side is None:
+            self.penalty_side = np.sign(puck_pos[0])
+
+        if np.sign(puck_pos[0]) == self.penalty_side:
+            # If the puck is on the same side as the penalty side, increment the penalty timer
+            self.penalty_timer += mdp.env_info["dt"]
+        else:
+            # Otherwise, reset the penalty timer and change the penalty side
+            self.penalty_side *= -1
+            self.penalty_timer = 0.0
+        ## ~ Penalty checking (timer update)
+
+        if absorbing or mdp._data.time < mdp.env_info["dt"] * 2:
+            ## Penalty checking
+            # If the penalty timer is greater than 15 seconds and the puck is not in the middle, give reward accordingly
+            if (
+                self.penalty_timer > self.PENALTY_THRESHOLD
+                and np.abs(puck_pos[0]) >= 0.15
+            ):
+                self.penalty_timer = 0.0
+                self.penalty_side = None
+                if self.penalty_side == -1:
+                    return 0.5
+                else:
+                    return -1.0
+            ## ~ Penalty checking
+
+            ## Goal checking
+            if (np.abs(puck_pos[1]) - mdp.env_info["table"]["goal_width"] / 2) <= 0:
+                if puck_pos[0] > mdp.env_info["table"]["length"] / 2:
+                    # Opponent's goal
+                    return 3.0
+                elif puck_pos[0] < -mdp.env_info["table"]["length"] / 2:
+                    # Participant's goal
+                    return -3.0
+            ## ~ Goal checking
+
+        return 0.0
+
+
 class HitReward:
     def __init__(self):
         self.has_hit = False

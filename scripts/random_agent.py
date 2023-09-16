@@ -8,7 +8,7 @@ from drl_air_hockey.agents import SpaceRAgent
 from drl_air_hockey.utils.config import INTERPOLATION_ORDER
 from drl_air_hockey.utils.task import Task as AirHockeyTask
 
-ENV = AirHockeyTask.R7_DEFEND
+ENV = AirHockeyTask.R7_TOURNAMENT
 RENDER: bool = True
 
 

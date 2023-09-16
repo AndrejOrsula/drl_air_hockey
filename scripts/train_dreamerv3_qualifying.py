@@ -6,11 +6,10 @@ from functools import partial
 
 import numpy as np
 from air_hockey_challenge.framework import AirHockeyChallengeWrapper
-from baseline.baseline_agent.baseline_agent import BaselineAgent
 from dreamerv3 import Agent, embodied, wrap_env
 from dreamerv3.embodied import wrappers
 
-from drl_air_hockey.agents import SpaceRAgent
+from drl_air_hockey.agents.spacer_agent_qualifying import SpaceRAgent
 from drl_air_hockey.utils.config import (
     ENV,
     EPISODE_MAX_STEPS,
@@ -22,14 +21,11 @@ from drl_air_hockey.utils.config import (
 from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
 from drl_air_hockey.utils.train import train_parallel
 
-AGENT_SCHEME: int = 1
-CONFIG_PRESET: int = 1
+AGENT_SCHEME: int = 3
+CONFIG_PRESET: int = 3
 
 OBSERVATION_NOISE_ENABLED: bool = False
 NOISE_STD: float = 0.025
-
-# TODO: Fix
-AGAINST_PREVIOUS_AGENT: bool = False
 
 
 def main(argv=None):
@@ -107,7 +103,7 @@ def main(argv=None):
             env = make_env(config)
             agent = Agent(env.obs_space, env.act_space, step, config)
             env.close()
-            replay = make_replay(config, logdir / "replay", rate_limit=False)
+            replay = make_replay(config, logdir / "replay", rate_limit=True)
             train_parallel(
                 agent,
                 replay,
@@ -185,36 +181,14 @@ def make_env(
     )
 
     # Make the agent transparent to the environment
-    agent_1 = SpaceRAgent(
+    env_agent = SpaceRAgent(
         env.env_info,
         train=True,
         scheme=AGENT_SCHEME,
         max_episode_steps=EPISODE_MAX_STEPS,
-        agent_id=1,
     )
-    if AGAINST_PREVIOUS_AGENT:
-        agent_2 = SpaceRAgent(
-            env.env_info,
-            train=False,
-            scheme=AGENT_SCHEME,
-            max_episode_steps=EPISODE_MAX_STEPS,
-            agent_id=2,
-        )
-    else:
-        agent_2 = BaselineAgent(env.env_info, agent_id=2)
-
-    # Set the agents
-    env._agent_1 = agent_1
-    env._agent_2 = agent_2
-
-    env.action_idx = (
-        np.arange(env.base_env.action_shape[0][0]),
-        np.arange(env.base_env.action_shape[1][0]),
-    )
-
-    # To make certain functions work (hack)
-    env.scheme = env._agent_1.scheme
-    env.n_stacked_obs = env._agent_1.n_stacked_obs
+    env._agent = env_agent
+    env.scheme = env_agent.scheme
 
     # Wrap the environment into embodied batch env
     env = EmbodiedChallengeWrapper(env)
@@ -246,15 +220,9 @@ def _apply_monkey_patch_env_step():
     _original_step = AirHockeyChallengeWrapper.step
 
     def new_step(self, action):
-        action_1 = self._agent_1.process_raw_act(action=action)
-        action_2 = self._agent_2.draw_action(self._previous_obs2)
-        combined_action = (action_1[self.action_idx[0]], action_2[self.action_idx[1]])
-
-        obs, reward, done, info = _original_step(self, combined_action)
-
-        obs1, obs2 = np.split(obs, 2)
-        self._previous_obs2 = obs2
-        obs = self._agent_1.process_raw_obs(obs=obs1)
+        action = self._agent.process_raw_act(action=action)
+        obs, reward, done, info = _original_step(self, action)
+        obs = self._agent.process_raw_obs(obs=obs)
 
         if OBSERVATION_NOISE_ENABLED:
             obs = np.clip(
@@ -272,15 +240,9 @@ def _apply_monkey_patch_env_step():
     _original_reset = AirHockeyChallengeWrapper.reset
 
     def new_reset(self, state=None):
-        self._agent_1.reset()
-        self._agent_2.reset()
-
+        self._agent.reset()
         obs = _original_reset(self, state)
-
-        obs1, obs2 = np.split(obs, 2)
-        self._previous_obs2 = obs2
-        obs = self._agent_1.process_raw_obs(obs=obs1)
-
+        obs = self._agent.process_raw_obs(obs=obs)
         return obs
 
     AirHockeyChallengeWrapper.reset = new_reset
