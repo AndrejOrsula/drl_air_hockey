@@ -27,17 +27,22 @@ class TournamentReward:
 
         if absorbing or mdp._data.time < mdp.env_info["dt"] * 2:
             ## Penalty checking
-            # If the penalty timer is greater than 15 seconds and the puck is not in the middle, give reward accordingly
+            # If the penalty timer is greater than X seconds and the puck is not in the middle, give reward accordingly
             if (
                 self.penalty_timer > self.PENALTY_THRESHOLD
                 and np.abs(puck_pos[0]) >= 0.15
             ):
+                if self.penalty_side == -1:
+                    r = -1.0
+                elif self.penalty_side == 1:
+                    r = 0.5
+                else:
+                    raise ValueError(
+                        f"Penalty side should be either -1 or 1, but got {self.penalty_side}"
+                    )
                 self.penalty_timer = 0.0
                 self.penalty_side = None
-                if self.penalty_side == -1:
-                    return 0.5
-                else:
-                    return -1.0
+                return r
             ## ~ Penalty checking
 
             ## Goal checking
