@@ -26,11 +26,11 @@ else:
     raise ValueError(f"Unknown environment name: {ENV}")
 
 RENDER: bool = False
-EPISODE_MAX_STEPS: int = 500
+EPISODE_MAX_STEPS: int = 3000
 INTERPOLATION_ORDER: int = -1
 
 
-def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
+def config_dreamerv3(train: bool = False, preset: int = 2) -> Dict[str, Any]:
     ## Create config
     config = embodied.Config(configs["defaults"])
     if preset == 1:
@@ -75,6 +75,48 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
                 "disag_head.units": 128,
             }
         )
+    elif preset == 2:
+        config = config.update(
+            {
+                "logdir": path.join(
+                    path.dirname(path.dirname(path.abspath(path.dirname(__file__)))),
+                    "logdir_p2_" + ENV.to_str().lower().replace("7dof-", ""),
+                ),
+                "jax.platform": "cpu",
+                "jax.precision": "float32",
+                "jax.prealloc": True,
+                "imag_horizon": 64,
+                # encoder/decoder obs keys
+                "encoder.mlp_keys": "vector",
+                "decoder.mlp_keys": "vector",
+                # encoder
+                "encoder.mlp_layers": 2,
+                "encoder.mlp_units": 128,
+                # decoder
+                "decoder.mlp_layers": 2,
+                "decoder.mlp_units": 128,
+                # rssm
+                "rssm.deter": 256,
+                "rssm.units": 256,
+                "rssm.stoch": 32,
+                "rssm.classes": 32,
+                # actor
+                "actor.layers": 2,
+                "actor.units": 128,
+                # critic
+                "critic.layers": 2,
+                "critic.units": 256,
+                # reward
+                "reward_head.layers": 2,
+                "reward_head.units": 256,
+                # cont
+                "cont_head.layers": 2,
+                "cont_head.units": 256,
+                # disag
+                "disag_head.layers": 2,
+                "disag_head.units": 256,
+            }
+        )
     else:
         raise ValueError(f"Unknown preset: {preset}")
 
@@ -89,8 +131,8 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
                 "replay_size": 2e6,
                 "run.steps": 5e7,
                 "run.log_every": 1024,
-                "run.train_ratio": 256,
-                "batch_size": 96,
+                "run.train_ratio": 128,
+                "batch_size": 32,
                 "batch_length": 64,
             }
         )
@@ -105,8 +147,8 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
         #         "replay_size": 2e6,
         #         "run.steps": 5e7,
         #         "run.log_every": 1024,
-        #         "run.train_ratio": 256,
-        #         "batch_size": 64,
+        #         "run.train_ratio": 128,
+        #         "batch_size": 16,
         #         "batch_length": 64,
         #     }
         # )

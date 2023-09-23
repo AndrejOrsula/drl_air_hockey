@@ -40,15 +40,20 @@ class SpaceRAgent(AgentBase):
 
     # MAX_DISPLACEMENT_LIMIT_ENABLED: bool = False
     # MAX_DISPLACEMENT_PER_STEP: float = 0.25
-    VEL_CONSTRAINTS_SCALING_FACTOR: float = 0.5
-    FILTER_ACTIONS_ENABLED: bool = True
+    VEL_CONSTRAINTS_SCALING_FACTOR: float = 0.65
+    FILTER_ACTIONS_ENABLED: bool = False
     FILTER_ACTIONS_COEFFICIENT: float = 0.05
 
-    OPERATING_AREA_OFFSET_FROM_CENTRE: float = 0.15
-    OPERATING_AREA_OFFSET_FROM_TABLE: float = 0.025
+    OPERATING_AREA_OFFSET_FROM_CENTRE: float = 0.17
+    OPERATING_AREA_OFFSET_FROM_TABLE: float = 0.02
+    OPERATING_AREA_OFFSET_FROM_GOAL: float = 0.01
 
     # Lower is more strict (positive only)
-    Z_POSITION_CONTROL_TOLERANCE: float = 0.5
+    Z_POSITION_CONTROL_TOLERANCE: float = 0.35
+
+    # Scheme 2
+    NOISE_OBS_OPPONENT_EE_POS_STD: float = 0.025
+    MAX_TIME_UNTIL_PENALTY: int = 15.0
 
     def __init__(
         self,
@@ -56,9 +61,8 @@ class SpaceRAgent(AgentBase):
         agent_id: int = 1,
         interpolation_order: Optional[int] = INTERPOLATION_ORDER,
         train: bool = False,
-        scheme: int = 1,
-        max_episode_steps: int = 500,
-        n_stacked_obs: int = 5,
+        load_model_override_path: Optional[str] = None,
+        scheme: int = 2,
         **kwargs,
     ):
         ## Chain up the parent implementation
@@ -71,11 +75,26 @@ class SpaceRAgent(AgentBase):
         self.agent_id = agent_id
         self.interpolation_order = interpolation_order
         self.scheme = scheme
-        if self.scheme not in [1]:
+        if self.scheme not in [1, 2]:
             raise ValueError("Invalid scheme")
-        self.max_episode_steps = max_episode_steps
-        self.n_stacked_obs = n_stacked_obs
-        self.stacked_obs = deque([], maxlen=self.n_stacked_obs)
+        elif self.scheme == 1:
+            self.max_episode_steps = 500  # This is wrong
+            self.n_stacked_obs = 5
+            self.stacked_obs = deque([], maxlen=self.n_stacked_obs)
+        elif self.scheme == 2:
+            self.max_time_until_penalty = self.MAX_TIME_UNTIL_PENALTY
+            self.penalty_timer = 0.0
+            self.n_stacked_obs_participant_ee_pos = 1
+            self.stacked_obs_participant_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_participant_ee_pos
+            )
+            self.n_stacked_obs_opponent_ee_pos = 1
+            self.stacked_obs_opponent_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_opponent_ee_pos
+            )
+            self.n_stacked_obs_puck_pos = 1
+            self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+            self.noise_obs_opponent_ee_pos_std = self.NOISE_OBS_OPPONENT_EE_POS_STD
 
         ## For evaluation, the agent is fully internal and loaded from a checkpoint.
         self.evaluate = not train
@@ -97,7 +116,10 @@ class SpaceRAgent(AgentBase):
             # Load checkpoint
             checkpoint = embodied.Checkpoint()
             checkpoint.agent = self.agent
-            checkpoint.load(self.INFERENCE_MODEL[self.task], keys=["agent"])
+            if load_model_override_path is None:
+                checkpoint.load(self.INFERENCE_MODEL[self.task], keys=["agent"])
+            else:
+                checkpoint.load(load_model_override_path, keys=["agent"])
 
             # Setup agent driver
             policy = lambda *args: self.agent.policy(*args, mode="eval")
@@ -122,7 +144,15 @@ class SpaceRAgent(AgentBase):
 
     @property
     def observation_space(self):
-        n_obs = 1 + 6 * self.n_stacked_obs
+        if self.scheme == 1:
+            n_obs = 1 + 6 * self.n_stacked_obs
+        elif self.scheme == 2:
+            n_obs = (
+                1
+                + 2 * self.n_stacked_obs_participant_ee_pos
+                + 2 * self.n_stacked_obs_opponent_ee_pos
+                + 2 * self.n_stacked_obs_puck_pos
+            )
 
         return gym.spaces.Box(
             low=-1.0,
@@ -228,8 +258,14 @@ class SpaceRAgent(AgentBase):
                 self.inference_in_progress = False
                 self.new_obs_in_queue = False
 
-        self.episode_step = 0
-        self.stacked_obs.clear()
+        if self.scheme == 1:
+            self.episode_step = 0
+            self.stacked_obs.clear()
+        elif self.scheme == 2:
+            self.penalty_timer = 0.0
+            self.stacked_obs_participant_ee_pos.clear()
+            self.stacked_obs_opponent_ee_pos.clear()
+            self.stacked_obs_puck_pos.clear()
 
     #### ~Evaluation only~ ####
 
@@ -252,8 +288,19 @@ class SpaceRAgent(AgentBase):
         self.current_ee_pos_xy_norm = ee_pos_xy_norm
 
         # Opponent's end-effector position
+        opponent_ee_pos_xy = self.get_opponent_ee_pos(obs)[:2]
+
+        # If training, add noise to the observation of opponent's position
+        if not self.evaluate and self.scheme == 2:
+            opponent_ee_pos_xy += np.random.normal(
+                0.0,
+                self.noise_obs_opponent_ee_pos_std,
+                size=opponent_ee_pos_xy.shape,
+            )
+
+        # Normalize opponent's end-effector position
         opponent_ee_pos_xy_norm = self._normalize_value(
-            self.get_opponent_ee_pos(obs)[:2],
+            opponent_ee_pos_xy,
             low_in=self.puck_table_minmax[:, 0],
             high_in=self.puck_table_minmax[:, 1],
         )
@@ -266,37 +313,88 @@ class SpaceRAgent(AgentBase):
         )
 
         # Concatenate into a single observation vector
-        obs_new = np.clip(
-            np.concatenate(
-                (
-                    puck_pos_xy_norm,
-                    ee_pos_xy_norm,
-                    opponent_ee_pos_xy_norm,
-                )
-            ),
-            -1.0,
-            1.0,
-        )
-
-        # Append to stacked observation to preserve temporal information
-        self.stacked_obs.append(obs_new)
-        while not self.n_stacked_obs == len(self.stacked_obs):
-            # For the first buffer after reset, fill with identical observations until deque is full
-            self.stacked_obs.append(obs_new.copy())
-
-        # Compute the episode progress as a number in [-1, 1] range
-        episode_progress = (
-            2.0 * np.clip(self.episode_step / self.max_episode_steps, 0.0, 1.0)
-        ) - 1.0
-        self.episode_step += 1
-
-        # Concaternate episode progress with all temporally-stacked observations
-        obs = np.concatenate(
-            (
-                [episode_progress],
-                np.array(self.stacked_obs, dtype=np.float32).flatten("F"),
+        if self.scheme == 1:
+            obs_new = np.clip(
+                np.concatenate(
+                    (
+                        puck_pos_xy_norm,
+                        ee_pos_xy_norm,
+                        opponent_ee_pos_xy_norm,
+                    )
+                ),
+                -1.0,
+                1.0,
             )
-        )
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs.append(obs_new)
+            while not self.n_stacked_obs == len(self.stacked_obs):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs.append(obs_new.copy())
+
+            # Compute the episode progress as a number in [-1, 1] range
+            episode_progress = (
+                2.0 * np.clip(self.episode_step / self.max_episode_steps, 0.0, 1.0)
+            ) - 1.0
+            self.episode_step += 1
+
+            # Concaternate episode progress with all temporally-stacked observations
+            obs = np.concatenate(
+                (
+                    [episode_progress],
+                    np.array(self.stacked_obs, dtype=np.float32).flatten("F"),
+                )
+            )
+        elif self.scheme == 2:
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+            while not self.n_stacked_obs_puck_pos == len(self.stacked_obs_puck_pos):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_puck_pos.append(puck_pos_xy_norm.copy())
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm)
+            while not self.n_stacked_obs_participant_ee_pos == len(
+                self.stacked_obs_participant_ee_pos
+            ):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm.copy())
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm)
+            while not self.n_stacked_obs_opponent_ee_pos == len(
+                self.stacked_obs_opponent_ee_pos
+            ):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm.copy())
+
+            # Compute penalty timer
+            if puck_pos_xy_norm[0] < 0.0:
+                current_penalty_timer = np.clip(
+                    self.penalty_timer / self.max_time_until_penalty, 0.0, 1.0
+                )
+                self.penalty_timer += self.sim_dt
+            else:
+                current_penalty_timer = -1.0
+                self.penalty_timer = 0.0
+
+            # Concaternate episode progress with all temporally-stacked observations
+            obs = np.clip(
+                np.concatenate(
+                    (
+                        [current_penalty_timer],
+                        np.array(self.stacked_obs_puck_pos, dtype=np.float32).flatten(),
+                        np.array(
+                            self.stacked_obs_participant_ee_pos, dtype=np.float32
+                        ).flatten(),
+                        np.array(
+                            self.stacked_obs_opponent_ee_pos, dtype=np.float32
+                        ).flatten(),
+                    )
+                ),
+                -1.0,
+                1.0,
+            )
 
         assert obs.shape == self.observation_space.shape
 
@@ -307,6 +405,30 @@ class SpaceRAgent(AgentBase):
         assert action.shape == self.action_space.shape
         assert max(action) <= 1.0 and min(action) >= -1.0
 
+        # if not hasattr(self, "previous_action"):
+        #     self.previous_action = np.zeros_like(action)
+        # if (
+        #     np.linalg.norm(
+        #         self.current_ee_pos[:2]
+        #         - self._unnormalize_value(
+        #             self.previous_action,
+        #             low_out=self.ee_table_minmax[:, 0],
+        #             high_out=self.ee_table_minmax[:, 1],
+        #         )
+        #     )
+        #     < 0.025
+        # ):
+        #     self.previous_action = [
+        #         np.array([-1.0, -1.0], dtype=np.float32),
+        #         np.array([-1.0, 1.0], dtype=np.float32),
+        #         np.array([1.0, -1.0], dtype=np.float32),
+        #         np.array([1.0, 0.0], dtype=np.float32),
+        #         np.array([-1.0, 0.0], dtype=np.float32),
+        #         np.array([0.0, 0.0], dtype=np.float32),
+        #         np.array([1.0, 1.0], dtype=np.float32),
+        #     ][np.random.randint(0, 7)]
+        # action = self.previous_action
+
         # # Limit the displacement to a pre-defined maximum for each step
         # if MAX_DISPLACEMENT_LIMIT_ENABLED:
         #     target_ee_disp_xy = action[:2] - self.current_ee_pos_xy_norm[:2]
@@ -316,7 +438,7 @@ class SpaceRAgent(AgentBase):
         #     target_ee_pos_xy = self.current_ee_pos_xy_norm[:2] + target_ee_disp_xy
         # else:
         #     target_ee_pos_xy = action[:2]
-        target_ee_pos_xy = action[:2]
+        target_ee_pos_xy = action
 
         # Filter the target position
         if self.FILTER_ACTIONS_ENABLED:
@@ -481,7 +603,8 @@ class SpaceRAgent(AgentBase):
                     np.abs(self.robot_base_frame[0][0, 3])
                     - (self.table_size[0] / 2)
                     + self.mallet_radius
-                    + self.OPERATING_AREA_OFFSET_FROM_TABLE,
+                    + self.OPERATING_AREA_OFFSET_FROM_TABLE
+                    + self.OPERATING_AREA_OFFSET_FROM_GOAL,
                     np.abs(self.robot_base_frame[0][0, 3])
                     - self.OPERATING_AREA_OFFSET_FROM_CENTRE,
                 ],

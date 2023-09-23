@@ -1,9 +1,9 @@
 #!/usr/bin/env -S python3 -O
 
 import os
+import shutil
 import warnings
 from functools import partial
-import shutil
 
 import numpy as np
 from air_hockey_challenge.framework import AirHockeyChallengeWrapper

@@ -12,8 +12,8 @@ from air_hockey_challenge.utils.tournament_agent_wrapper import (
 from baseline.baseline_agent.baseline_agent import BaselineAgent
 
 # Default parameters
-RENDER: bool = True
-N_ENVIRONMENTS: int = 3
+RENDER: bool = False
+N_ENVIRONMENTS: int = 4
 STEPS_PER_GAME: int = 45000
 
 
