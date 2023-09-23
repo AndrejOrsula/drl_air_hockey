@@ -2,7 +2,7 @@ import numpy as np
 
 
 class TournamentReward:
-    PENALTY_THRESHOLD: int = 5.0
+    PENALTY_THRESHOLD: int = 14.0  # A bit less than the official rule (15 seconds)
 
     def __init__(self):
         self.penalty_timer = 0.0
@@ -35,7 +35,7 @@ class TournamentReward:
                 if self.penalty_side == -1:
                     r = -1.0
                 elif self.penalty_side == 1:
-                    r = 0.5
+                    r = 1.0
                 else:
                     raise ValueError(
                         f"Penalty side should be either -1 or 1, but got {self.penalty_side}"
