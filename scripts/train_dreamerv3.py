@@ -3,6 +3,7 @@
 import os
 import warnings
 from functools import partial
+import shutil
 
 import numpy as np
 from air_hockey_challenge.framework import AirHockeyChallengeWrapper
@@ -22,14 +23,20 @@ from drl_air_hockey.utils.config import (
 from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
 from drl_air_hockey.utils.train import train_parallel
 
-AGENT_SCHEME: int = 1
-CONFIG_PRESET: int = 1
+AGENT_SCHEME: int = 2
+CONFIG_PRESET: int = 2
 
 OBSERVATION_NOISE_ENABLED: bool = False
 NOISE_STD: float = 0.025
 
-# TODO: Fix
-AGAINST_PREVIOUS_AGENT: bool = False
+SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 100
+DIR_MODELS: str = os.path.join(
+    os.path.abspath(os.path.dirname(os.path.dirname(__file__))),
+    "drl_air_hockey",
+    "agents",
+    "models",
+)
+MAX_N_MODELS: int = 25
 
 
 def main(argv=None):
@@ -192,20 +199,42 @@ def make_env(
         max_episode_steps=EPISODE_MAX_STEPS,
         agent_id=1,
     )
-    if AGAINST_PREVIOUS_AGENT:
-        agent_2 = SpaceRAgent(
-            env.env_info,
-            train=False,
-            scheme=AGENT_SCHEME,
-            max_episode_steps=EPISODE_MAX_STEPS,
-            agent_id=2,
+    # List of opponents that are randomly selected during the training for each episode
+    env._opponent_models = [
+        BaselineAgent(env.env_info, agent_id=2),
+    ]
+    for filename in os.listdir(DIR_MODELS):
+        model_path = os.path.join(DIR_MODELS, filename)
+        if not (
+            os.path.isfile(model_path)
+            and filename.startswith(f"scheme")
+            and filename.endswith(".ckpt")
+            and "_" in filename
+        ):
+            continue
+        scheme = int(filename.split("_")[0][len("scheme") :])
+        env._opponent_models.append(
+            SpaceRAgent(
+                env.env_info,
+                agent_id=2,
+                train=False,
+                scheme=scheme,
+                load_model_override_path=model_path,
+                max_episode_steps=EPISODE_MAX_STEPS,
+            )
         )
-    else:
-        agent_2 = BaselineAgent(env.env_info, agent_id=2)
+    # Counter that determines when to save a new opponent model
+    env._save_opponent_model_timeout_counter = 0
+    # Counter that determines the name of the model
+    env._saved_opponent_model_counter = 0
+    # Get path to the models (inefficient hack - get from config)
+    config = config_dreamerv3(train=False, preset=CONFIG_PRESET)
+    config = embodied.Flags(config).parse(argv=[])
+    env._model_logdir = config.logdir
 
     # Set the agents
     env._agent_1 = agent_1
-    env._agent_2 = agent_2
+    env._agent_2 = np.random.choice(env._opponent_models)
 
     env.action_idx = (
         np.arange(env.base_env.action_shape[0][0]),
@@ -214,7 +243,14 @@ def make_env(
 
     # To make certain functions work (hack)
     env.scheme = env._agent_1.scheme
-    env.n_stacked_obs = env._agent_1.n_stacked_obs
+    if env.scheme == 1:
+        env.n_stacked_obs = env._agent_1.n_stacked_obs
+    elif env.scheme == 2:
+        env.n_stacked_obs_participant_ee_pos = (
+            env._agent_1.n_stacked_obs_participant_ee_pos
+        )
+        env.n_stacked_obs_opponent_ee_pos = env._agent_1.n_stacked_obs_opponent_ee_pos
+        env.n_stacked_obs_puck_pos = env._agent_1.n_stacked_obs_puck_pos
 
     # Wrap the environment into embodied batch env
     env = EmbodiedChallengeWrapper(env)
@@ -232,7 +268,7 @@ def _apply_monkey_patch_dreamerv3():
     def __monkey_patch__setup(self):
         __monkey_patch__setup_original(self)
         # Configuration for a large machine
-        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.925"
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
 
     Agent._setup = __monkey_patch__setup
     ## ~MONKEY PATCH:  Reduce preallocated JAX memory
@@ -273,6 +309,46 @@ def _apply_monkey_patch_env_step():
     _original_reset = AirHockeyChallengeWrapper.reset
 
     def new_reset(self, state=None):
+        # Regularly add a new opponent from a copy of the current model
+        self._save_opponent_model_timeout_counter += 1
+        if (
+            self._save_opponent_model_timeout_counter
+            >= SAVE_NEW_OPPONENT_EVERY_N_EPISODES
+        ):
+            self._save_opponent_model_timeout_counter = 0
+
+            # If too many opponent models, pop a random model (except the first one)
+            while len(self._opponent_models) >= MAX_N_MODELS:
+                self._opponent_models.pop(
+                    np.random.randint(1, len(self._opponent_models))
+                )
+
+            self._saved_opponent_model_counter += 1
+            checkpoint_path = os.path.join(self._model_logdir, "checkpoint.ckpt")
+            if not os.path.exists(checkpoint_path):
+                raise RuntimeError(
+                    f"Could not find checkpoint file at {checkpoint_path}"
+                )
+            save_model_path = os.path.join(
+                DIR_MODELS,
+                f"scheme{AGENT_SCHEME}_mk{self._saved_opponent_model_counter}.ckpt",
+            )
+            if not os.path.exists(save_model_path):
+                shutil.copyfile(checkpoint_path, save_model_path)
+            self._opponent_models.append(
+                SpaceRAgent(
+                    self.env_info,
+                    agent_id=2,
+                    train=False,
+                    scheme=AGENT_SCHEME,
+                    load_model_override_path=save_model_path,
+                    max_episode_steps=EPISODE_MAX_STEPS,
+                ),
+            )
+
+        # Randomly select a new opponent to train against
+        self._agent_2 = np.random.choice(self._opponent_models)
+
         self._agent_1.reset()
         self._agent_2.reset()
 
