@@ -231,7 +231,8 @@ def _apply_monkey_patch_dreamerv3():
 
     def __monkey_patch__setup(self):
         __monkey_patch__setup_original(self)
-        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8"
+        # Configuration for a large machine
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.925"
 
     Agent._setup = __monkey_patch__setup
     ## ~MONKEY PATCH:  Reduce preallocated JAX memory

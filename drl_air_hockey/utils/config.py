@@ -79,8 +79,8 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
         raise ValueError(f"Unknown preset: {preset}")
 
     if train:
-        num_envs = 6
-
+        # Configuration for a "large" machine
+        num_envs = 8
         config = config.update(
             {
                 "jax.platform": "gpu",
@@ -90,9 +90,25 @@ def config_dreamerv3(train: bool = False, preset: int = 1) -> Dict[str, Any]:
                 "run.steps": 5e7,
                 "run.log_every": 1024,
                 "run.train_ratio": 256,
-                "batch_size": 64,
+                "batch_size": 96,
                 "batch_length": 64,
             }
         )
+
+        # # Configuration for a "small" machine
+        # num_envs = 4
+        # config = config.update(
+        #     {
+        #         "jax.platform": "gpu",
+        #         "envs.amount": num_envs,
+        #         "run.actor_batch": num_envs,
+        #         "replay_size": 2e6,
+        #         "run.steps": 5e7,
+        #         "run.log_every": 1024,
+        #         "run.train_ratio": 256,
+        #         "batch_size": 64,
+        #         "batch_length": 64,
+        #     }
+        # )
 
     return config
