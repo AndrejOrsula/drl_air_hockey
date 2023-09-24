@@ -40,6 +40,7 @@ class SpaceRAgent(AgentBase):
 
     # MAX_DISPLACEMENT_LIMIT_ENABLED: bool = False
     # MAX_DISPLACEMENT_PER_STEP: float = 0.25
+    # TODO: Train an agent with no velocity constaints and use it as a difficult opponent during training
     VEL_CONSTRAINTS_SCALING_FACTOR: float = 0.65
     FILTER_ACTIONS_ENABLED: bool = False
     FILTER_ACTIONS_COEFFICIENT: float = 0.05
@@ -62,7 +63,7 @@ class SpaceRAgent(AgentBase):
         interpolation_order: Optional[int] = INTERPOLATION_ORDER,
         train: bool = False,
         load_model_override_path: Optional[str] = None,
-        scheme: int = 2,
+        scheme: int = 3,
         **kwargs,
     ):
         ## Chain up the parent implementation
@@ -75,7 +76,7 @@ class SpaceRAgent(AgentBase):
         self.agent_id = agent_id
         self.interpolation_order = interpolation_order
         self.scheme = scheme
-        if self.scheme not in [1, 2]:
+        if self.scheme not in [1, 2, 3]:
             raise ValueError("Invalid scheme")
         elif self.scheme == 1:
             self.max_episode_steps = 500  # This is wrong
@@ -93,6 +94,24 @@ class SpaceRAgent(AgentBase):
                 [], maxlen=self.n_stacked_obs_opponent_ee_pos
             )
             self.n_stacked_obs_puck_pos = 1
+            self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+            self.noise_obs_opponent_ee_pos_std = self.NOISE_OBS_OPPONENT_EE_POS_STD
+        elif self.scheme == 3:
+            # Differences from 2:
+            #  - Longer observation history
+            #  - Penalty side is included in the observation
+            self.max_time_until_penalty = self.MAX_TIME_UNTIL_PENALTY
+            self.penalty_side = None
+            self.penalty_timer = 0.0
+            self.n_stacked_obs_participant_ee_pos = 3
+            self.stacked_obs_participant_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_participant_ee_pos
+            )
+            self.n_stacked_obs_opponent_ee_pos = 5
+            self.stacked_obs_opponent_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_opponent_ee_pos
+            )
+            self.n_stacked_obs_puck_pos = 9
             self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
             self.noise_obs_opponent_ee_pos_std = self.NOISE_OBS_OPPONENT_EE_POS_STD
 
@@ -146,7 +165,7 @@ class SpaceRAgent(AgentBase):
     def observation_space(self):
         if self.scheme == 1:
             n_obs = 1 + 6 * self.n_stacked_obs
-        elif self.scheme == 2:
+        elif self.scheme in [2, 3]:
             n_obs = (
                 1
                 + 2 * self.n_stacked_obs_participant_ee_pos
@@ -261,11 +280,15 @@ class SpaceRAgent(AgentBase):
         if self.scheme == 1:
             self.episode_step = 0
             self.stacked_obs.clear()
-        elif self.scheme == 2:
+        elif self.scheme in [2, 3]:
             self.penalty_timer = 0.0
             self.stacked_obs_participant_ee_pos.clear()
             self.stacked_obs_opponent_ee_pos.clear()
             self.stacked_obs_puck_pos.clear()
+
+        # Additional reset for scheme 3
+        if self.scheme == 3:
+            self.penalty_side = None
 
     #### ~Evaluation only~ ####
 
@@ -291,7 +314,7 @@ class SpaceRAgent(AgentBase):
         opponent_ee_pos_xy = self.get_opponent_ee_pos(obs)[:2]
 
         # If training, add noise to the observation of opponent's position
-        if not self.evaluate and self.scheme == 2:
+        if not self.evaluate and self.scheme in [2, 3]:
             opponent_ee_pos_xy += np.random.normal(
                 0.0,
                 self.noise_obs_opponent_ee_pos_std,
@@ -370,13 +393,64 @@ class SpaceRAgent(AgentBase):
 
             # Compute penalty timer
             if puck_pos_xy_norm[0] < 0.0:
-                current_penalty_timer = np.clip(
-                    self.penalty_timer / self.max_time_until_penalty, 0.0, 1.0
-                )
+                current_penalty_timer = self.penalty_timer / self.max_time_until_penalty
                 self.penalty_timer += self.sim_dt
             else:
                 current_penalty_timer = -1.0
                 self.penalty_timer = 0.0
+
+            # Concaternate episode progress with all temporally-stacked observations
+            obs = np.clip(
+                np.concatenate(
+                    (
+                        [current_penalty_timer],
+                        np.array(self.stacked_obs_puck_pos, dtype=np.float32).flatten(),
+                        np.array(
+                            self.stacked_obs_participant_ee_pos, dtype=np.float32
+                        ).flatten(),
+                        np.array(
+                            self.stacked_obs_opponent_ee_pos, dtype=np.float32
+                        ).flatten(),
+                    )
+                ),
+                -1.0,
+                1.0,
+            )
+
+        elif self.scheme == 3:
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+            while not self.n_stacked_obs_puck_pos == len(self.stacked_obs_puck_pos):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_puck_pos.append(puck_pos_xy_norm.copy())
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm)
+            while not self.n_stacked_obs_participant_ee_pos == len(
+                self.stacked_obs_participant_ee_pos
+            ):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm.copy())
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm)
+            while not self.n_stacked_obs_opponent_ee_pos == len(
+                self.stacked_obs_opponent_ee_pos
+            ):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm.copy())
+
+            # Compute penalty timer (this is the only difference from scheme 2)
+            if self.penalty_side is None:
+                self.penalty_side = np.sign(puck_pos_xy_norm[0])
+            elif np.sign(puck_pos_xy_norm[0]) == self.penalty_side:
+                self.penalty_timer += self.sim_dt
+            else:
+                self.penalty_side *= -1
+                self.penalty_timer = 0.0
+            current_penalty_timer = (
+                self.penalty_side * self.penalty_timer / self.max_time_until_penalty
+            )
 
             # Concaternate episode progress with all temporally-stacked observations
             obs = np.clip(

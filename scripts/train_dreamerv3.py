@@ -23,13 +23,13 @@ from drl_air_hockey.utils.config import (
 from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
 from drl_air_hockey.utils.train import train_parallel
 
-AGENT_SCHEME: int = 2
+AGENT_SCHEME: int = 3
 CONFIG_PRESET: int = 2
 
 OBSERVATION_NOISE_ENABLED: bool = False
 NOISE_STD: float = 0.025
 
-SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 100
+SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 50
 DIR_MODELS: str = os.path.join(
     os.path.abspath(os.path.dirname(os.path.dirname(__file__))),
     "drl_air_hockey",
@@ -245,7 +245,7 @@ def make_env(
     env.scheme = env._agent_1.scheme
     if env.scheme == 1:
         env.n_stacked_obs = env._agent_1.n_stacked_obs
-    elif env.scheme == 2:
+    elif env.scheme in [2, 3]:
         env.n_stacked_obs_participant_ee_pos = (
             env._agent_1.n_stacked_obs_participant_ee_pos
         )
