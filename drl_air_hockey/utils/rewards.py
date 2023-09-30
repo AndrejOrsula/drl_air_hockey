@@ -2,9 +2,23 @@ import numpy as np
 
 
 class TournamentReward:
-    PENALTY_THRESHOLD: int = 14.0  # A bit less than the official rule (15 seconds)
+    MAX_TIME_UNTIL_PENALTY_S: int = 15.0
 
-    def __init__(self):
+    def __init__(
+        self,
+        reward_agent_score_goal: float = 1.0,
+        reward_agent_receive_goal: float = -1.0,
+        reward_opponent_faul: float = 1.0 / 3.0,
+        reward_agent_faul: float = -1.0 / 3.0,
+        reward_agent_cause_puck_stuck: float = 0.0,
+    ):
+        self._reward_agent_score_goal = reward_agent_score_goal
+        self._reward_agent_receive_goal = reward_agent_receive_goal
+        self._reward_opponent_faul = reward_opponent_faul
+        self._reward_agent_faul = reward_agent_faul
+        self._reward_agent_cause_puck_stuck = reward_agent_cause_puck_stuck
+        self._penalty_threshold = 0.75 * self.MAX_TIME_UNTIL_PENALTY_S
+
         self.penalty_timer = 0.0
         self.penalty_side = None
 
@@ -29,13 +43,13 @@ class TournamentReward:
             ## Penalty checking
             # If the penalty timer is greater than X seconds and the puck is not in the middle, give reward accordingly
             if (
-                self.penalty_timer > self.PENALTY_THRESHOLD
+                self.penalty_timer > self._penalty_threshold
                 and np.abs(puck_pos[0]) >= 0.15
             ):
                 if self.penalty_side == -1:
-                    r = -1.0
+                    r = self._reward_agent_faul
                 elif self.penalty_side == 1:
-                    r = 1.0
+                    r = self._reward_opponent_faul
                 else:
                     raise ValueError(
                         f"Penalty side should be either -1 or 1, but got {self.penalty_side}"
@@ -45,14 +59,23 @@ class TournamentReward:
                 return r
             ## ~ Penalty checking
 
+            ## Puck stuck in the middle
+            if np.abs(puck_pos[0]) < 0.15 and np.linalg.norm(puck_vel[0]) < 0.025:
+                self.penalty_timer = 0.0
+                self.penalty_side = None
+                return self._reward_agent_cause_puck_stuck
+            ## ~ Puck stuck in the middle
+
             ## Goal checking
             if (np.abs(puck_pos[1]) - mdp.env_info["table"]["goal_width"] / 2) <= 0:
                 if puck_pos[0] > mdp.env_info["table"]["length"] / 2:
-                    # Opponent's goal
-                    return 3.0
+                    self.penalty_timer = 0.0
+                    self.penalty_side = None
+                    return self._reward_agent_score_goal
                 elif puck_pos[0] < -mdp.env_info["table"]["length"] / 2:
-                    # Participant's goal
-                    return -3.0
+                    self.penalty_timer = 0.0
+                    self.penalty_side = None
+                    return self._reward_agent_receive_goal
             ## ~ Goal checking
 
         return 0.0
