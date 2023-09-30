@@ -13,30 +13,29 @@ from dreamerv3.embodied import wrappers
 
 from drl_air_hockey.agents import SpaceRAgent
 from drl_air_hockey.utils.config import (
+    AGENT_STRATEGY,
+    DIR_MODELS,
     ENV,
     EPISODE_MAX_STEPS,
     INTERPOLATION_ORDER,
     RENDER,
-    REWARD_FUNCTION,
     config_dreamerv3,
 )
 from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
+from drl_air_hockey.utils.tournament_agent_strategies import (
+    strategy_from_str,
+    strategy_to_str,
+)
 from drl_air_hockey.utils.train import train_parallel
 
-AGENT_SCHEME: int = 3
-CONFIG_PRESET: int = 2
+AGENT_SCHEME: int = 6
+CONFIG_PRESET: int = 4
 
-OBSERVATION_NOISE_ENABLED: bool = False
-NOISE_STD: float = 0.025
-
-SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 50
-DIR_MODELS: str = os.path.join(
-    os.path.abspath(os.path.dirname(os.path.dirname(__file__))),
-    "drl_air_hockey",
-    "agents",
-    "models",
-)
+SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 100
 MAX_N_MODELS: int = 25
+
+# OBSERVATION_NOISE_ENABLED: bool = False
+# NOISE_STD: float = 0.025
 
 
 def main(argv=None):
@@ -181,7 +180,7 @@ def make_envs(config, **overrides):
 def make_env(
     config,
     env_str=ENV.to_str(),
-    reward_function=REWARD_FUNCTION,
+    reward_function=AGENT_STRATEGY.get_reward_function(),
     interpolation_order=INTERPOLATION_ORDER,
 ):
     _apply_monkey_patch_env_step()
@@ -194,10 +193,11 @@ def make_env(
     # Make the agent transparent to the environment
     agent_1 = SpaceRAgent(
         env.env_info,
+        agent_id=1,
+        interpolation_order=interpolation_order,
         train=True,
         scheme=AGENT_SCHEME,
-        max_episode_steps=EPISODE_MAX_STEPS,
-        agent_id=1,
+        **AGENT_STRATEGY.get_env_kwargs(),
     )
     # List of opponents that are randomly selected during the training for each episode
     env._opponent_models = [
@@ -212,15 +212,25 @@ def make_env(
             and "_" in filename
         ):
             continue
+
         scheme = int(filename.split("_")[0][len("scheme") :])
+
+        if "_strategy" in filename:
+            strategy = filename.split("_")[1][len("strategy") :]
+            strategy = strategy_from_str(strategy)
+            strategy_kwargs = strategy.get_env_kwargs()
+        else:
+            strategy_kwargs = {}
+
         env._opponent_models.append(
             SpaceRAgent(
                 env.env_info,
                 agent_id=2,
+                interpolation_order=interpolation_order,
                 train=False,
                 scheme=scheme,
-                load_model_override_path=model_path,
-                max_episode_steps=EPISODE_MAX_STEPS,
+                load_model_path=model_path,
+                **strategy_kwargs,
             )
         )
     # Counter that determines when to save a new opponent model
@@ -243,14 +253,9 @@ def make_env(
 
     # To make certain functions work (hack)
     env.scheme = env._agent_1.scheme
-    if env.scheme == 1:
-        env.n_stacked_obs = env._agent_1.n_stacked_obs
-    elif env.scheme in [2, 3]:
-        env.n_stacked_obs_participant_ee_pos = (
-            env._agent_1.n_stacked_obs_participant_ee_pos
-        )
-        env.n_stacked_obs_opponent_ee_pos = env._agent_1.n_stacked_obs_opponent_ee_pos
-        env.n_stacked_obs_puck_pos = env._agent_1.n_stacked_obs_puck_pos
+    env.n_stacked_obs_participant_ee_pos = env._agent_1.n_stacked_obs_participant_ee_pos
+    env.n_stacked_obs_opponent_ee_pos = env._agent_1.n_stacked_obs_opponent_ee_pos
+    env.n_stacked_obs_puck_pos = env._agent_1.n_stacked_obs_puck_pos
 
     # Wrap the environment into embodied batch env
     env = EmbodiedChallengeWrapper(env)
@@ -268,7 +273,7 @@ def _apply_monkey_patch_dreamerv3():
     def __monkey_patch__setup(self):
         __monkey_patch__setup_original(self)
         # Configuration for a large machine
-        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.9"
 
     Agent._setup = __monkey_patch__setup
     ## ~MONKEY PATCH:  Reduce preallocated JAX memory
@@ -293,10 +298,10 @@ def _apply_monkey_patch_env_step():
         self._previous_obs2 = obs2
         obs = self._agent_1.process_raw_obs(obs=obs1)
 
-        if OBSERVATION_NOISE_ENABLED:
-            obs = np.clip(
-                obs + np.random.normal(0.0, NOISE_STD, size=obs.shape), -1.0, 1.0
-            )
+        # if OBSERVATION_NOISE_ENABLED:
+        #     obs = np.clip(
+        #         obs + np.random.normal(0.0, NOISE_STD, size=obs.shape), -1.0, 1.0
+        #     )
 
         if RENDER:
             self.render()
@@ -331,7 +336,7 @@ def _apply_monkey_patch_env_step():
                 )
             save_model_path = os.path.join(
                 DIR_MODELS,
-                f"scheme{AGENT_SCHEME}_mk{self._saved_opponent_model_counter}.ckpt",
+                f"scheme{AGENT_SCHEME}_strategy{strategy_to_str(AGENT_STRATEGY)}_mk{self._saved_opponent_model_counter}.ckpt",
             )
             if not os.path.exists(save_model_path):
                 shutil.copyfile(checkpoint_path, save_model_path)
@@ -339,10 +344,11 @@ def _apply_monkey_patch_env_step():
                 SpaceRAgent(
                     self.env_info,
                     agent_id=2,
+                    interpolation_order=INTERPOLATION_ORDER,
                     train=False,
                     scheme=AGENT_SCHEME,
-                    load_model_override_path=save_model_path,
-                    max_episode_steps=EPISODE_MAX_STEPS,
+                    load_model_path=save_model_path,
+                    **AGENT_STRATEGY.get_env_kwargs(),
                 ),
             )
 
