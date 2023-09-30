@@ -1,9 +1,5 @@
-import os
-import time
 from collections import deque
-from sys import getswitchinterval as gsi
-from sys import setswitchinterval as ssi
-from threading import Condition, Lock, Thread
+from os import nice, path
 from typing import Any, Dict, Optional
 
 import dreamerv3
@@ -19,71 +15,94 @@ from air_hockey_challenge.utils.kinematics import (
 from dreamerv3 import embodied
 from mushroom_rl.core.environment import MDPInfo
 
-from drl_air_hockey.utils.config import INTERPOLATION_ORDER, config_dreamerv3
+from drl_air_hockey.utils.config import (
+    DIR_MODELS,
+    INTERPOLATION_ORDER,
+    MAX_TIME_UNTIL_PENALTY_S,
+    config_dreamerv3,
+)
 from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
 from drl_air_hockey.utils.eval import PolicyEvalDriver
 from drl_air_hockey.utils.task import Task as AirHockeyTask
 
+## Required by async inference
+# import os
+# import time
+# from sys import getswitchinterval as gsi
+# from sys import setswitchinterval as ssi
+# from threading import Condition, Lock, Thread
+
 
 class SpaceRAgent(AgentBase):
-    DIR_MODELS: str = os.path.join(os.path.abspath(os.path.dirname(__file__)), "models")
-    INFERENCE_MODEL: Dict[AirHockeyTask, str] = {
-        AirHockeyTask.R7_HIT: os.path.join(DIR_MODELS, "hit.ckpt"),
-        AirHockeyTask.R7_DEFEND: os.path.join(DIR_MODELS, "defend.ckpt"),
-        AirHockeyTask.R7_PREPARE: os.path.join(DIR_MODELS, "prepare.ckpt"),
-        AirHockeyTask.R7_TOURNAMENT: os.path.join(DIR_MODELS, "tournament.ckpt"),
+    # # Whether to use asynchronous inference
+    # ASYNC_INFERENCE: bool = False
+    # # 20 ms (2 ms reserved for extra processing)
+    # STEP_TIME_LIMIT: float = 0.02 - 0.002
+
+    # Default models to use for inference if not specified
+    DEFAULT_INFERENCE_MODEL: Dict[AirHockeyTask, str] = {
+        AirHockeyTask.R7_HIT: path.join(DIR_MODELS, "hit.ckpt"),
+        AirHockeyTask.R7_DEFEND: path.join(DIR_MODELS, "defend.ckpt"),
+        AirHockeyTask.R7_PREPARE: path.join(DIR_MODELS, "prepare.ckpt"),
+        AirHockeyTask.R7_TOURNAMENT: path.join(DIR_MODELS, "tournament.ckpt"),
     }
-
-    ASYNC_INFERENCE: bool = False
-
-    STEP_TIME_LIMIT: float = 0.02 - 0.002  # 20 ms (2 ms reserved for extra processing)
-
-    # MAX_DISPLACEMENT_LIMIT_ENABLED: bool = False
-    # MAX_DISPLACEMENT_PER_STEP: float = 0.25
-    # TODO: Train an agent with no velocity constaints and use it as a difficult opponent during training
-    VEL_CONSTRAINTS_SCALING_FACTOR: float = 0.65
-    FILTER_ACTIONS_ENABLED: bool = False
-    FILTER_ACTIONS_COEFFICIENT: float = 0.05
-
-    OPERATING_AREA_OFFSET_FROM_CENTRE: float = 0.17
-    OPERATING_AREA_OFFSET_FROM_TABLE: float = 0.02
-    OPERATING_AREA_OFFSET_FROM_GOAL: float = 0.01
-
-    # Lower is more strict (positive only)
-    Z_POSITION_CONTROL_TOLERANCE: float = 0.35
-
-    # Scheme 2
-    NOISE_OBS_OPPONENT_EE_POS_STD: float = 0.025
-    MAX_TIME_UNTIL_PENALTY: int = 15.0
 
     def __init__(
         self,
         env_info: Dict[str, Any],
         agent_id: int = 1,
         interpolation_order: Optional[int] = INTERPOLATION_ORDER,
+        # Whether to train or evaluate (inference)
         train: bool = False,
-        load_model_override_path: Optional[str] = None,
-        scheme: int = 3,
+        # Path to the model to load for inference
+        load_model_path: Optional[str] = None,
+        # Observation scheme used by the agent
+        scheme: int = 6,
+        # Velocity constraints (0.5 is about safe)
+        vel_constraints_scaling_factor: float = 0.65,
+        # # Whether to filter actions and by how much
+        # filter_actions_enabled: bool = False,
+        # filter_actions_coefficient: float = 0.05,
+        # Extra offsets for operating area of the agent (in meters)
+        operating_area_offset_from_centre: float = 0.17,
+        operating_area_offset_from_table: float = 0.02,
+        operating_area_offset_from_goal: float = 0.01,
+        # Strictness of the Z position (positive only, lower is more strict)
+        z_position_control_tolerance: float = 0.35,
+        # Noise to apply to the observation of opponent's end-effector position
+        noise_obs_opponent_ee_pos_std: float = 0.025,
         **kwargs,
     ):
+        try:
+            nice(100)
+        except Exception:
+            pass
+
         ## Chain up the parent implementation
         AgentBase.__init__(self, env_info=env_info, agent_id=agent_id, **kwargs)
-
-        ## Extract information about the environment and write it to members
-        self.extract_env_info()
 
         ## Get information about the agent
         self.agent_id = agent_id
         self.interpolation_order = interpolation_order
+        self.evaluate = not train
+
         self.scheme = scheme
-        if self.scheme not in [1, 2, 3]:
-            raise ValueError("Invalid scheme")
-        elif self.scheme == 1:
-            self.max_episode_steps = 500  # This is wrong
-            self.n_stacked_obs = 5
-            self.stacked_obs = deque([], maxlen=self.n_stacked_obs)
+        self.vel_constraints_scaling_factor = vel_constraints_scaling_factor
+        # self.filter_actions_enabled = filter_actions_enabled
+        # self.filter_actions_coefficient = filter_actions_coefficient
+        self.operating_area_offset_from_centre = operating_area_offset_from_centre
+        self.operating_area_offset_from_table = operating_area_offset_from_table
+        self.operating_area_offset_from_goal = operating_area_offset_from_goal
+        self.z_position_control_tolerance = z_position_control_tolerance
+        self.noise_obs_opponent_ee_pos_std = noise_obs_opponent_ee_pos_std
+
+        ## Extract information about the environment and write it to members
+        self.extract_env_info()
+
+        ## Determine the scheme (affects mostly just the observation vector)
+        if self.scheme == 1:
+            raise ValueError("Scheme 1 is no longer supported")
         elif self.scheme == 2:
-            self.max_time_until_penalty = self.MAX_TIME_UNTIL_PENALTY
             self.penalty_timer = 0.0
             self.n_stacked_obs_participant_ee_pos = 1
             self.stacked_obs_participant_ee_pos = deque(
@@ -95,12 +114,10 @@ class SpaceRAgent(AgentBase):
             )
             self.n_stacked_obs_puck_pos = 1
             self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
-            self.noise_obs_opponent_ee_pos_std = self.NOISE_OBS_OPPONENT_EE_POS_STD
         elif self.scheme == 3:
             # Differences from 2:
             #  - Longer observation history
             #  - Penalty side is included in the observation
-            self.max_time_until_penalty = self.MAX_TIME_UNTIL_PENALTY
             self.penalty_side = None
             self.penalty_timer = 0.0
             self.n_stacked_obs_participant_ee_pos = 3
@@ -113,13 +130,61 @@ class SpaceRAgent(AgentBase):
             )
             self.n_stacked_obs_puck_pos = 9
             self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
-            self.noise_obs_opponent_ee_pos_std = self.NOISE_OBS_OPPONENT_EE_POS_STD
+        elif self.scheme == 4:
+            # Same as 3 but different length of history
+            self.penalty_side = None
+            self.penalty_timer = 0.0
+            self.n_stacked_obs_participant_ee_pos = 2
+            self.stacked_obs_participant_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_participant_ee_pos
+            )
+            self.n_stacked_obs_opponent_ee_pos = 2
+            self.stacked_obs_opponent_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_opponent_ee_pos
+            )
+            self.n_stacked_obs_puck_pos = 2
+            self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+        elif self.scheme == 5:
+            # Same as 3/4 but different length of history
+            self.penalty_side = None
+            self.penalty_timer = 0.0
+            self.n_stacked_obs_participant_ee_pos = 4
+            self.stacked_obs_participant_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_participant_ee_pos
+            )
+            self.n_stacked_obs_opponent_ee_pos = 4
+            self.stacked_obs_opponent_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_opponent_ee_pos
+            )
+            self.n_stacked_obs_puck_pos = 4
+            self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+        elif self.scheme == 6:
+            # Same as 5 but with joint positions as part of the observation
+            self.penalty_side = None
+            self.penalty_timer = 0.0
+            self.n_stacked_obs_participant_ee_pos = 4
+            self.stacked_obs_participant_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_participant_ee_pos
+            )
+            self.n_stacked_obs_opponent_ee_pos = 4
+            self.stacked_obs_opponent_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_opponent_ee_pos
+            )
+            self.n_stacked_obs_puck_pos = 4
+            self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+        else:
+            raise ValueError("Invalid scheme")
 
         ## For evaluation, the agent is fully internal and loaded from a checkpoint.
-        self.evaluate = not train
         if self.evaluate:
             # Patch DreamerV3
             _apply_monkey_patch_dreamerv3()
+
+            self.load_model_path = (
+                load_model_path
+                if load_model_path is not None
+                else self.DEFAULT_INFERENCE_MODEL[self.task]
+            )
 
             # Setup config
             config = config_dreamerv3()
@@ -135,10 +200,7 @@ class SpaceRAgent(AgentBase):
             # Load checkpoint
             checkpoint = embodied.Checkpoint()
             checkpoint.agent = self.agent
-            if load_model_override_path is None:
-                checkpoint.load(self.INFERENCE_MODEL[self.task], keys=["agent"])
-            else:
-                checkpoint.load(load_model_override_path, keys=["agent"])
+            checkpoint.load(self.load_model_path, keys=["agent"])
 
             # Setup agent driver
             policy = lambda *args: self.agent.policy(*args, mode="eval")
@@ -146,38 +208,37 @@ class SpaceRAgent(AgentBase):
 
             self.initialize_inference()
 
-            # Setup async inference
-            if self.ASYNC_INFERENCE:
-                self.mutex = Lock()
-                self.cv_new_obs_avail = Condition(lock=self.mutex)
-                self.cv_new_act_avail = Condition(lock=self.mutex)
-                self.inference_in_progress = False
-                self.new_obs_in_queue = False
-                self.thread = Thread(target=self.inference_loop)
-                self.thread.start()
-
-            self._original_interval = gsi()
-            self._inference_interval = self.STEP_TIME_LIMIT
+            # # Setup async inference
+            # if self.ASYNC_INFERENCE:
+            #     self._original_interval = gsi()
+            #     self.mutex = Lock()
+            #     self.cv_new_obs_avail = Condition(lock=self.mutex)
+            #     self.cv_new_act_avail = Condition(lock=self.mutex)
+            #     self.inference_in_progress = False
+            #     self.new_obs_in_queue = False
+            #     self.thread = Thread(target=self.inference_loop)
+            #     self.thread.start()
 
         self.reset()
 
     @property
     def observation_space(self):
-        if self.scheme == 1:
-            n_obs = 1 + 6 * self.n_stacked_obs
-        elif self.scheme in [2, 3]:
-            n_obs = (
-                1
-                + 2 * self.n_stacked_obs_participant_ee_pos
-                + 2 * self.n_stacked_obs_opponent_ee_pos
-                + 2 * self.n_stacked_obs_puck_pos
-            )
+        n_obs = (
+            1
+            + 2 * self.n_stacked_obs_participant_ee_pos
+            + 2 * self.n_stacked_obs_opponent_ee_pos
+            + 2 * self.n_stacked_obs_puck_pos
+        )
+        if self.scheme == 6:
+            n_obs += 7
+
+        dtype = np.float32
 
         return gym.spaces.Box(
             low=-1.0,
             high=1.0,
             shape=(n_obs,),
-            dtype=np.float32,
+            dtype=dtype,
         )
 
     @property
@@ -186,44 +247,49 @@ class SpaceRAgent(AgentBase):
         # The desired XY position of the mallet
         #  - pos_x
         #  - pos_y
+
+        dtype = np.float32
+
         return gym.spaces.Box(
             low=-1.0,
             high=1.0,
             shape=(2,),
-            dtype=np.float32,
+            dtype=dtype,
         )
 
     ##### Evaluation only #####
 
     def draw_action(self, obs: np.ndarray) -> np.ndarray:
-        ssi(self._inference_interval)
-        start_time = time.time()
+        # ## Asynchronous inference
+        # if self.ASYNC_INFERENCE:
+        #     ssi(self.STEP_TIME_LIMIT)
+        #     start_time = time.time()
 
-        # Extract and normalize relevant observations
-        obs = self.process_raw_obs(obs)
+        #     # Extract and normalize relevant observations
+        #     obs = self.process_raw_obs(obs)
 
-        ## Asynchronous inference
-        if self.ASYNC_INFERENCE:
-            # Notify the inference thread that new observation is available
-            with self.cv_new_obs_avail:
-                self.obs = obs
-                if self.inference_in_progress:
-                    self.new_obs_in_queue = True
-                else:
-                    self.cv_new_obs_avail.notify()
+        #     # Notify the inference thread that new observation is available
+        #     with self.cv_new_obs_avail:
+        #         self.obs = obs
+        #         if self.inference_in_progress:
+        #             self.new_obs_in_queue = True
+        #         else:
+        #             self.cv_new_obs_avail.notify()
 
-            # Wait for new action to be available or until time limit is reached
-            with self.cv_new_act_avail:
-                self.cv_new_act_avail.wait(
-                    timeout=self.STEP_TIME_LIMIT - (time.time() - start_time)
-                )
-                act = np.copy(self.act)
-        else:
-            ## Synchronous inference
-            act = self.infer_action(obs)
+        #     # Wait for new action to be available or until time limit is reached
+        #     with self.cv_new_act_avail:
+        #         self.cv_new_act_avail.wait(
+        #             timeout=self.STEP_TIME_LIMIT - (time.time() - start_time)
+        #         )
+        #         act = np.copy(self.act)
+        #     ssi(self._original_interval)
+        # else:
+        #     ## Synchronous inference
+        #     obs = self.process_raw_obs(obs)
+        #     act = self.infer_action(obs)
+        # return act
 
-        ssi(self._original_interval)
-        return act
+        return self.infer_action(self.process_raw_obs(obs))
 
     def inference_loop(self):
         obs = np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype)
@@ -264,30 +330,26 @@ class SpaceRAgent(AgentBase):
             self.observation_space.shape, dtype=self.observation_space.dtype
         )
 
-        if self.FILTER_ACTIONS_ENABLED:
-            self.previous_ee_pos_xy_norm = None
+        # if self.filter_actions_enabled:
+        #     self.previous_ee_pos_xy_norm = None
 
         if self.evaluate:
             self.policy_driver.reset()
-            if self.ASYNC_INFERENCE:
-                with self.cv_new_obs_avail:
-                    self.cv_new_obs_avail.wait(timeout=self.STEP_TIME_LIMIT)
-                with self.cv_new_act_avail:
-                    self.cv_new_act_avail.wait(timeout=self.STEP_TIME_LIMIT)
-                self.inference_in_progress = False
-                self.new_obs_in_queue = False
+            # if self.ASYNC_INFERENCE:
+            #     with self.cv_new_obs_avail:
+            #         self.cv_new_obs_avail.wait(timeout=self.STEP_TIME_LIMIT)
+            #     with self.cv_new_act_avail:
+            #         self.cv_new_act_avail.wait(timeout=self.STEP_TIME_LIMIT)
+            #     self.inference_in_progress = False
+            #     self.new_obs_in_queue = False
 
-        if self.scheme == 1:
-            self.episode_step = 0
-            self.stacked_obs.clear()
-        elif self.scheme in [2, 3]:
-            self.penalty_timer = 0.0
-            self.stacked_obs_participant_ee_pos.clear()
-            self.stacked_obs_opponent_ee_pos.clear()
-            self.stacked_obs_puck_pos.clear()
+        self.penalty_timer = 0.0
+        self.stacked_obs_participant_ee_pos.clear()
+        self.stacked_obs_opponent_ee_pos.clear()
+        self.stacked_obs_puck_pos.clear()
 
-        # Additional reset for scheme 3
-        if self.scheme == 3:
+        # Additional reset for scheme 3/4
+        if self.scheme != 2:
             self.penalty_side = None
 
     #### ~Evaluation only~ ####
@@ -314,7 +376,7 @@ class SpaceRAgent(AgentBase):
         opponent_ee_pos_xy = self.get_opponent_ee_pos(obs)[:2]
 
         # If training, add noise to the observation of opponent's position
-        if not self.evaluate and self.scheme in [2, 3]:
+        if not self.evaluate:
             opponent_ee_pos_xy += np.random.normal(
                 0.0,
                 self.noise_obs_opponent_ee_pos_std,
@@ -336,39 +398,7 @@ class SpaceRAgent(AgentBase):
         )
 
         # Concatenate into a single observation vector
-        if self.scheme == 1:
-            obs_new = np.clip(
-                np.concatenate(
-                    (
-                        puck_pos_xy_norm,
-                        ee_pos_xy_norm,
-                        opponent_ee_pos_xy_norm,
-                    )
-                ),
-                -1.0,
-                1.0,
-            )
-
-            # Append to stacked observation to preserve temporal information
-            self.stacked_obs.append(obs_new)
-            while not self.n_stacked_obs == len(self.stacked_obs):
-                # For the first buffer after reset, fill with identical observations until deque is full
-                self.stacked_obs.append(obs_new.copy())
-
-            # Compute the episode progress as a number in [-1, 1] range
-            episode_progress = (
-                2.0 * np.clip(self.episode_step / self.max_episode_steps, 0.0, 1.0)
-            ) - 1.0
-            self.episode_step += 1
-
-            # Concaternate episode progress with all temporally-stacked observations
-            obs = np.concatenate(
-                (
-                    [episode_progress],
-                    np.array(self.stacked_obs, dtype=np.float32).flatten("F"),
-                )
-            )
-        elif self.scheme == 2:
+        if self.scheme == 2:
             # Append to stacked observation to preserve temporal information
             self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
             while not self.n_stacked_obs_puck_pos == len(self.stacked_obs_puck_pos):
@@ -393,7 +423,7 @@ class SpaceRAgent(AgentBase):
 
             # Compute penalty timer
             if puck_pos_xy_norm[0] < 0.0:
-                current_penalty_timer = self.penalty_timer / self.max_time_until_penalty
+                current_penalty_timer = self.penalty_timer / MAX_TIME_UNTIL_PENALTY_S
                 self.penalty_timer += self.sim_dt
             else:
                 current_penalty_timer = -1.0
@@ -417,7 +447,7 @@ class SpaceRAgent(AgentBase):
                 1.0,
             )
 
-        elif self.scheme == 3:
+        elif self.scheme in [3, 4]:
             # Append to stacked observation to preserve temporal information
             self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
             while not self.n_stacked_obs_puck_pos == len(self.stacked_obs_puck_pos):
@@ -449,7 +479,7 @@ class SpaceRAgent(AgentBase):
                 self.penalty_side *= -1
                 self.penalty_timer = 0.0
             current_penalty_timer = (
-                self.penalty_side * self.penalty_timer / self.max_time_until_penalty
+                self.penalty_side * self.penalty_timer / MAX_TIME_UNTIL_PENALTY_S
             )
 
             # Concaternate episode progress with all temporally-stacked observations
@@ -457,6 +487,120 @@ class SpaceRAgent(AgentBase):
                 np.concatenate(
                     (
                         [current_penalty_timer],
+                        np.array(self.stacked_obs_puck_pos, dtype=np.float32).flatten(),
+                        np.array(
+                            self.stacked_obs_participant_ee_pos, dtype=np.float32
+                        ).flatten(),
+                        np.array(
+                            self.stacked_obs_opponent_ee_pos, dtype=np.float32
+                        ).flatten(),
+                    )
+                ),
+                -1.0,
+                1.0,
+            )
+
+        elif self.scheme == 5:
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+            while not self.n_stacked_obs_puck_pos == len(self.stacked_obs_puck_pos):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_puck_pos.append(puck_pos_xy_norm.copy())
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm)
+            while not self.n_stacked_obs_participant_ee_pos == len(
+                self.stacked_obs_participant_ee_pos
+            ):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm.copy())
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm)
+            while not self.n_stacked_obs_opponent_ee_pos == len(
+                self.stacked_obs_opponent_ee_pos
+            ):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm.copy())
+
+            # Compute penalty timer (this is the only difference from scheme 2)
+            if self.penalty_side is None:
+                self.penalty_side = np.sign(puck_pos_xy_norm[0])
+            elif np.sign(puck_pos_xy_norm[0]) == self.penalty_side:
+                self.penalty_timer += self.sim_dt
+            else:
+                self.penalty_side *= -1
+                self.penalty_timer = 0.0
+            current_penalty_timer = (
+                self.penalty_side * self.penalty_timer / MAX_TIME_UNTIL_PENALTY_S
+            )
+
+            # Concaternate episode progress with all temporally-stacked observations
+            obs = np.clip(
+                np.concatenate(
+                    (
+                        [current_penalty_timer],
+                        np.array(self.stacked_obs_puck_pos, dtype=np.float32).flatten(),
+                        np.array(
+                            self.stacked_obs_participant_ee_pos, dtype=np.float32
+                        ).flatten(),
+                        np.array(
+                            self.stacked_obs_opponent_ee_pos, dtype=np.float32
+                        ).flatten(),
+                    )
+                ),
+                -1.0,
+                1.0,
+            )
+
+        elif self.scheme == 6:
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+            while not self.n_stacked_obs_puck_pos == len(self.stacked_obs_puck_pos):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_puck_pos.append(puck_pos_xy_norm.copy())
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm)
+            while not self.n_stacked_obs_participant_ee_pos == len(
+                self.stacked_obs_participant_ee_pos
+            ):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm.copy())
+
+            # Append to stacked observation to preserve temporal information
+            self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm)
+            while not self.n_stacked_obs_opponent_ee_pos == len(
+                self.stacked_obs_opponent_ee_pos
+            ):
+                # For the first buffer after reset, fill with identical observations until deque is full
+                self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm.copy())
+
+            # Compute penalty timer (this is the only difference from scheme 2)
+            if self.penalty_side is None:
+                self.penalty_side = np.sign(puck_pos_xy_norm[0])
+            elif np.sign(puck_pos_xy_norm[0]) == self.penalty_side:
+                self.penalty_timer += self.sim_dt
+            else:
+                self.penalty_side *= -1
+                self.penalty_timer = 0.0
+            current_penalty_timer = (
+                self.penalty_side * self.penalty_timer / MAX_TIME_UNTIL_PENALTY_S
+            )
+
+            # Normalize joint positions and concatenate with the rest of the observation
+            current_joint_pos_normalized = self._normalize_value(
+                self.current_joint_pos,
+                low_in=self.robot_joint_pos_limit[0, :],
+                high_in=self.robot_joint_pos_limit[1, :],
+            )
+
+            # Concaternate episode progress with all temporally-stacked observations
+            obs = np.clip(
+                np.concatenate(
+                    (
+                        [current_penalty_timer],
+                        current_joint_pos_normalized,
                         np.array(self.stacked_obs_puck_pos, dtype=np.float32).flatten(),
                         np.array(
                             self.stacked_obs_participant_ee_pos, dtype=np.float32
@@ -493,36 +637,27 @@ class SpaceRAgent(AgentBase):
         #     < 0.025
         # ):
         #     self.previous_action = [
-        #         np.array([-1.0, -1.0], dtype=np.float32),
-        #         np.array([-1.0, 1.0], dtype=np.float32),
-        #         np.array([1.0, -1.0], dtype=np.float32),
-        #         np.array([1.0, 0.0], dtype=np.float32),
-        #         np.array([-1.0, 0.0], dtype=np.float32),
-        #         np.array([0.0, 0.0], dtype=np.float32),
-        #         np.array([1.0, 1.0], dtype=np.float32),
+        #         np.array([-1.0, -1.0]),
+        #         np.array([-1.0, 1.0]),
+        #         np.array([1.0, -1.0]),
+        #         np.array([1.0, 0.0]),
+        #         np.array([-1.0, 0.0]),
+        #         np.array([0.0, 0.0]),
+        #         np.array([1.0, 1.0]),
         #     ][np.random.randint(0, 7)]
         # action = self.previous_action
 
-        # # Limit the displacement to a pre-defined maximum for each step
-        # if MAX_DISPLACEMENT_LIMIT_ENABLED:
-        #     target_ee_disp_xy = action[:2] - self.current_ee_pos_xy_norm[:2]
-        #     disp_xy_norm = np.linalg.norm(target_ee_disp_xy)
-        #     if disp_xy_norm > self.MAX_DISPLACEMENT_PER_STEP:
-        #         target_ee_disp_xy *= self.MAX_DISPLACEMENT_PER_STEP / disp_xy_norm
-        #     target_ee_pos_xy = self.current_ee_pos_xy_norm[:2] + target_ee_disp_xy
-        # else:
-        #     target_ee_pos_xy = action[:2]
         target_ee_pos_xy = action
 
-        # Filter the target position
-        if self.FILTER_ACTIONS_ENABLED:
-            if self.previous_ee_pos_xy_norm is None:
-                self.previous_ee_pos_xy_norm = self.current_ee_pos_xy_norm
-            target_ee_pos_xy = (
-                self.FILTER_ACTIONS_COEFFICIENT * self.previous_ee_pos_xy_norm
-                + (1 - self.FILTER_ACTIONS_COEFFICIENT) * target_ee_pos_xy
-            )
-            self.previous_ee_pos_xy_norm = target_ee_pos_xy
+        # # Filter the target position
+        # if self.filter_actions_enabled:
+        #     if self.previous_ee_pos_xy_norm is None:
+        #         self.previous_ee_pos_xy_norm = self.current_ee_pos_xy_norm
+        #     target_ee_pos_xy = (
+        #         self.filter_actions_coefficient * self.previous_ee_pos_xy_norm
+        #         + (1 - self.filter_actions_coefficient) * target_ee_pos_xy
+        #     )
+        #     self.previous_ee_pos_xy_norm = target_ee_pos_xy
 
         # Unnormalize the action and combine with desired height
         target_ee_pos = np.array(
@@ -534,7 +669,7 @@ class SpaceRAgent(AgentBase):
                 ),
                 self.robot_ee_desired_height,
             ],
-            dtype=np.float32,
+            dtype=action.dtype,
         )
 
         # Calculate the target joint disp via Inverse Jacobian method
@@ -588,7 +723,7 @@ class SpaceRAgent(AgentBase):
         # Weighted average of joint displacements, such that Z position is closely maintained
         s = np.linalg.svd(jac, compute_uv=False)
         s[:2] = np.mean(s[:2])
-        s[2] *= self.Z_POSITION_CONTROL_TOLERANCE
+        s[2] *= self.z_position_control_tolerance
         s = 1 / s
         s = s / np.sum(s)
 
@@ -655,7 +790,7 @@ class SpaceRAgent(AgentBase):
             "joint_acc_limit"
         ]
         self.robot_joint_vel_limit_scaled = (
-            self.VEL_CONSTRAINTS_SCALING_FACTOR * self.robot_joint_vel_limit
+            self.vel_constraints_scaling_factor * self.robot_joint_vel_limit
         )
 
         # Information about the simulation
@@ -677,18 +812,18 @@ class SpaceRAgent(AgentBase):
                     np.abs(self.robot_base_frame[0][0, 3])
                     - (self.table_size[0] / 2)
                     + self.mallet_radius
-                    + self.OPERATING_AREA_OFFSET_FROM_TABLE
-                    + self.OPERATING_AREA_OFFSET_FROM_GOAL,
+                    + self.operating_area_offset_from_table
+                    + self.operating_area_offset_from_goal,
                     np.abs(self.robot_base_frame[0][0, 3])
-                    - self.OPERATING_AREA_OFFSET_FROM_CENTRE,
+                    - self.operating_area_offset_from_centre,
                 ],
                 [
                     -(self.table_size[1] / 2)
                     + self.mallet_radius
-                    + self.OPERATING_AREA_OFFSET_FROM_TABLE,
+                    + self.operating_area_offset_from_table,
                     (self.table_size[1] / 2)
                     - self.mallet_radius
-                    - self.OPERATING_AREA_OFFSET_FROM_TABLE,
+                    - self.operating_area_offset_from_table,
                 ],
             ]
         )
@@ -758,16 +893,6 @@ class SpaceRAgent(AgentBase):
 
 
 def _apply_monkey_patch_dreamerv3():
-    ## MONKEY PATCH: Reduce preallocated JAX memory
-    __monkey_patch__setup_original = dreamerv3.Agent._setup
-
-    def __monkey_patch__setup(self):
-        __monkey_patch__setup_original(self)
-        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8"
-
-    dreamerv3.Agent._setup = __monkey_patch__setup
-    ## ~MONKEY PATCH:  Reduce preallocated JAX memory
-
     ## MONKEY PATCH: Speed up initialization for inference
     def __monkey_patch__init_varibs(self, obs_space, act_space):
         rng = self._next_rngs(self.train_devices, mirror=True)
