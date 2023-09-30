@@ -1,0 +1,65 @@
+{
+	"name": "${localWorkspaceFolderBasename}",
+	"build": {
+		"context": "${localWorkspaceFolder}",
+		"dockerfile": "${localWorkspaceFolder}/Dockerfile",
+		"cacheFrom": "andrejorsula/drl_air_hockey"
+	},
+	"workspaceFolder": "/src/drl_air_hockey",
+	"workspaceMount": "type=bind,source=${localWorkspaceFolder},target=/src/drl_air_hockey",
+	"runArgs": [
+		// Network mode
+		"--network=host",
+		"--ipc=host",
+		// NVIDIA GPU
+		"--gpus=all",
+		// Other GPUs
+		"--device=/dev/dri:/dev/dri",
+		"--group-add=video"
+	],
+	"mounts": [
+		// Local time
+		"type=bind,source=/etc/localtime,target=/etc/localtime,readonly",
+		// Input devices
+		"type=bind,source=/dev/input,target=/dev/input",
+		// GUI (X11)
+		"type=bind,source=/tmp/.X11-unix,target=/tmp/.X11-unix",
+		"type=bind,source=${localEnv:TMPDIR:/tmp}/xauth_docker_vsc_${localWorkspaceFolderBasename},target=${localEnv:TMPDIR:/tmp}/xauth_docker_vsc_${localWorkspaceFolderBasename}"
+	],
+	"containerEnv": {
+		// GUI (X11)
+		"DISPLAY": "${localEnv:DISPLAY}",
+		"XAUTHORITY": "${localEnv:TMPDIR:/tmp}/xauth_docker_vsc_${localWorkspaceFolderBasename}",
+		// NVIDIA GPU
+		"NVIDIA_VISIBLE_DEVICES": "all",
+		"NVIDIA_DRIVER_CAPABILITIES": "all"
+	},
+	"initializeCommand": "XAUTH=\"${localEnv:TMPDIR:/tmp}/xauth_docker_vsc_${localWorkspaceFolderBasename}\"; touch \"${XAUTH}\"; chmod a+r \"${XAUTH}\"; XAUTH_LIST=$(xauth nlist \"${localEnv:DISPLAY}\"); if [ -n \"${XAUTH_LIST}\" ]; then echo \"${XAUTH_LIST}\" | sed -e 's/^..../ffff/' | xauth -f \"${XAUTH}\" nmerge -; fi",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				// Bash
+				"mads-hartmann.bash-ide-vscode",
+				// CMake
+				"ms-vscode.cmake-tools",
+				"twxs.cmake",
+				// Python
+				"ms-python.python",
+				"ms-python.black-formatter",
+				"ms-python.isort",
+				// Yaml
+				"redhat.vscode-yaml",
+				// XML
+				"redhat.vscode-xml",
+				// Utils
+				"christian-kohler.path-intellisense"
+			],
+			"settings": {
+				"python.languageServer": "Jedi",
+				"[python]": {
+					"editor.defaultFormatter": "ms-python.black-formatter"
+				}
+			}
+		}
+	}
+}
