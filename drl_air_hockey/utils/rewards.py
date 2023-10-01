@@ -23,6 +23,7 @@ class TournamentReward:
         self.penalty_side = None
 
     def __call__(self, mdp, state, action, next_state, absorbing):
+        r = 0.0
         puck_pos, puck_vel = mdp.get_puck(next_state)
 
         ## Penalty checking (timer update)
@@ -54,31 +55,26 @@ class TournamentReward:
                     raise ValueError(
                         f"Penalty side should be either -1 or 1, but got {self.penalty_side}"
                     )
-                self.penalty_timer = 0.0
-                self.penalty_side = None
-                return r
             ## ~ Penalty checking
 
             ## Puck stuck in the middle
             if np.abs(puck_pos[0]) < 0.15 and np.linalg.norm(puck_vel[0]) < 0.025:
-                self.penalty_timer = 0.0
-                self.penalty_side = None
-                return self._reward_agent_cause_puck_stuck
+                r = self._reward_agent_cause_puck_stuck
             ## ~ Puck stuck in the middle
 
             ## Goal checking
             if (np.abs(puck_pos[1]) - mdp.env_info["table"]["goal_width"] / 2) <= 0:
                 if puck_pos[0] > mdp.env_info["table"]["length"] / 2:
-                    self.penalty_timer = 0.0
-                    self.penalty_side = None
-                    return self._reward_agent_score_goal
+                    r = self._reward_agent_score_goal
                 elif puck_pos[0] < -mdp.env_info["table"]["length"] / 2:
-                    self.penalty_timer = 0.0
-                    self.penalty_side = None
-                    return self._reward_agent_receive_goal
+                    r = self._reward_agent_receive_goal
             ## ~ Goal checking
 
-        return 0.0
+            # Reset the penalty timer and side (it is the end of episode)
+            self.penalty_timer = 0.0
+            self.penalty_side = None
+
+        return r
 
 
 class HitReward:
