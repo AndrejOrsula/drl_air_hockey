@@ -32,7 +32,7 @@ AGENT_SCHEME: int = 6
 CONFIG_PRESET: int = 4
 
 SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 100
-MAX_N_MODELS: int = 25
+MAX_N_MODELS: int = 20
 
 # OBSERVATION_NOISE_ENABLED: bool = False
 # NOISE_STD: float = 0.025
@@ -272,8 +272,12 @@ def _apply_monkey_patch_dreamerv3():
 
     def __monkey_patch__setup(self):
         __monkey_patch__setup_original(self)
-        # Configuration for a large machine
-        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.9"
+        # Configuration for a "large" machine
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.925"
+        # # Configuration for a "medium" machine
+        # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.875"
+        # # Configuration for a "small" machine
+        # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
 
     Agent._setup = __monkey_patch__setup
     ## ~MONKEY PATCH:  Reduce preallocated JAX memory

@@ -28,7 +28,7 @@ DIR_MODELS: str = path.join(
 )
 
 
-def config_dreamerv3(train: bool = False, preset: int = 2) -> Dict[str, Any]:
+def config_dreamerv3(train: bool = False, preset: int = 4) -> Dict[str, Any]:
     ## Create config
     config = embodied.Config(configs["defaults"])
     if preset == 1:
@@ -223,7 +223,7 @@ def config_dreamerv3(train: bool = False, preset: int = 2) -> Dict[str, Any]:
         )
 
         # # Configuration for a "medium" machine
-        # num_envs = 8
+        # num_envs = 4
         # config = config.update(
         #     {
         #         "jax.platform": "gpu",
@@ -239,7 +239,7 @@ def config_dreamerv3(train: bool = False, preset: int = 2) -> Dict[str, Any]:
         # )
 
         # # Configuration for a "small" machine
-        # num_envs = 5
+        # num_envs = 6
         # config = config.update(
         #     {
         #         "jax.platform": "gpu",
