@@ -45,7 +45,7 @@ class SpaceRAgent(AgentBase):
         # Path to the model to load for inference
         load_model_path: Optional[str] = None,
         # Observation scheme used by the agent
-        scheme: int = 6,
+        scheme: int = 7,
         # Velocity constraints (0.5 is about safe)
         vel_constraints_scaling_factor: float = 0.65,
         # # Whether to filter actions and by how much
@@ -58,14 +58,13 @@ class SpaceRAgent(AgentBase):
         # Strictness of the Z position (positive only, lower is more strict)
         z_position_control_tolerance: float = 0.35,
         # Noise to apply to the observation of opponent's end-effector position
-        noise_obs_opponent_ee_pos_std: float = 0.025,
+        noise_obs_opponent_ee_pos_std: float = 0.01,
+        noise_obs_ee_pos_std: float = 0.005,
+        noise_obs_puck_pos_std: float = 0.0025,
+        noise_obs_joint_pos_std: float = 0.05,
+        noise_act_std: float = 0.0025,
         **kwargs,
     ):
-        try:
-            nice(69)
-        except Exception:
-            pass
-
         ## Chain up the parent implementation
         AgentBase.__init__(self, env_info=env_info, agent_id=agent_id, **kwargs)
 
@@ -83,6 +82,10 @@ class SpaceRAgent(AgentBase):
         self.operating_area_offset_from_goal = operating_area_offset_from_goal
         self.z_position_control_tolerance = z_position_control_tolerance
         self.noise_obs_opponent_ee_pos_std = noise_obs_opponent_ee_pos_std
+        self.noise_obs_ee_pos_std = noise_obs_ee_pos_std
+        self.noise_obs_puck_pos_std = noise_obs_puck_pos_std
+        self.noise_obs_joint_pos_std = noise_obs_joint_pos_std
+        self.noise_act_std = noise_act_std
 
         ## Extract information about the environment and write it to members
         self.extract_env_info()
@@ -162,11 +165,36 @@ class SpaceRAgent(AgentBase):
             )
             self.n_stacked_obs_puck_pos = self.n_stacked_obs
             self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+        elif self.scheme == 7:
+            self.penalty_side = None
+            self.penalty_timer = 0.0
+            self.n_stacked_obs_participant_ee_pos = 5
+            self.stacked_obs_participant_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_participant_ee_pos
+            )
+            self.n_stacked_obs_opponent_ee_pos = 5
+            self.stacked_obs_opponent_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_opponent_ee_pos
+            )
+            self.n_stacked_obs_puck_pos = 16
+            self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+            self.n_stacked_obs_puck_rot = 2
+            self.stacked_obs_puck_rot = deque([], maxlen=self.n_stacked_obs_puck_rot)
         else:
             raise ValueError("Invalid scheme")
 
+        # Emulate loss of tracking during training
+        if not self.evaluate:
+            self.lose_tracking_probability = 0.0
+            self.lose_tracking_n_steps_remaining = 0
+
         ## For evaluation, the agent is fully internal and loaded from a checkpoint.
         if self.evaluate:
+            try:
+                nice(69)
+            except Exception:
+                pass
+
             # Patch DreamerV3
             _apply_monkey_patch_dreamerv3()
 
@@ -208,8 +236,10 @@ class SpaceRAgent(AgentBase):
             + 2 * self.n_stacked_obs_opponent_ee_pos
             + 2 * self.n_stacked_obs_puck_pos
         )
-        if self.scheme == 6:
+        if self.scheme in [6, 7]:
             n_obs += 7
+        if self.scheme == 7:
+            n_obs += 2 * self.n_stacked_obs_puck_rot
 
         return gym.spaces.Box(
             low=-1.0,
@@ -247,6 +277,9 @@ class SpaceRAgent(AgentBase):
     def reset(self):
         if self.evaluate:
             self.policy_driver.reset()
+        else:
+            self.lose_tracking_probability = 0.0
+            self.lose_tracking_n_steps_remaining = 0
 
         self.penalty_timer = 0.0
         if self.scheme != 2:
@@ -255,6 +288,8 @@ class SpaceRAgent(AgentBase):
         self.stacked_obs_participant_ee_pos.clear()
         self.stacked_obs_opponent_ee_pos.clear()
         self.stacked_obs_puck_pos.clear()
+        if self.scheme == 7:
+            self.stacked_obs_puck_rot.clear()
 
         self._new_episode = True
 
@@ -262,6 +297,12 @@ class SpaceRAgent(AgentBase):
         ## Normalize used observations
         # Player's Joint positions
         self.current_joint_pos = self.get_joint_pos(obs)
+        if not self.evaluate:
+            self.current_joint_pos += np.random.normal(
+                0.0,
+                self.noise_obs_joint_pos_std,
+                size=self.current_joint_pos.shape,
+            )
         current_joint_pos_normalized = np.clip(
             self._normalize_value(
                 self.current_joint_pos,
@@ -274,6 +315,12 @@ class SpaceRAgent(AgentBase):
 
         # Player's end-effector position
         self.current_ee_pos = self.get_ee_pose(obs)[0]
+        if not self.evaluate:
+            self.current_ee_pos += np.random.normal(
+                0.0,
+                self.noise_obs_ee_pos_std,
+                size=self.current_ee_pos.shape,
+            )
         ee_pos_xy_norm = np.clip(
             self._normalize_value(
                 self.current_ee_pos[:2],
@@ -305,15 +352,25 @@ class SpaceRAgent(AgentBase):
         )
 
         # Puck's position
+        puck_pos = self.get_puck_pos(obs)
+        if not self.evaluate:
+            puck_pos += np.random.normal(
+                0.0,
+                self.noise_obs_puck_pos_std,
+                size=puck_pos.shape,
+            )
         puck_pos_xy_norm = np.clip(
             self._normalize_value(
-                self.get_puck_pos(obs)[:2],
+                puck_pos[:2],
                 low_in=self.puck_table_minmax[:, 0],
                 high_in=self.puck_table_minmax[:, 1],
             ),
             -1.0,
             1.0,
         )
+
+        # Puck's rotation (sin and cos)
+        puck_rot_yaw_norm = np.array([np.sin(puck_pos[2]), np.cos(puck_pos[2])])
 
         # Concatenate into a single observation vector
         if self.scheme == 2:
@@ -513,6 +570,86 @@ class SpaceRAgent(AgentBase):
                 )
             )
 
+        elif self.scheme == 7:
+            current_joint_pos_normalized = np.clip(
+                self._normalize_value(
+                    self.current_joint_pos,
+                    low_in=self.robot_joint_pos_limit[0, :],
+                    high_in=self.robot_joint_pos_limit[1, :],
+                ),
+                -1.0,
+                1.0,
+            )
+
+            ## Compute penalty timer
+            if self.penalty_side is None:
+                self.penalty_side = np.sign(puck_pos_xy_norm[0])
+            elif np.sign(puck_pos_xy_norm[0]) == self.penalty_side:
+                self.penalty_timer += self.sim_dt
+            else:
+                self.penalty_side *= -1
+                self.penalty_timer = 0.0
+            current_penalty_timer = np.clip(
+                self.penalty_side * self.penalty_timer / MAX_TIME_UNTIL_PENALTY_S,
+                -1.0,
+                1.0,
+            )
+
+            ## Append current observation to a stack that preserves temporal information
+            if self._new_episode:
+                self.stacked_obs_puck_pos.extend(
+                    np.tile(puck_pos_xy_norm, (self.n_stacked_obs_puck_pos, 1))
+                )
+                self.stacked_obs_puck_rot.extend(
+                    np.tile(puck_rot_yaw_norm, (self.n_stacked_obs_puck_rot, 1))
+                )
+                self.stacked_obs_participant_ee_pos.extend(
+                    np.tile(ee_pos_xy_norm, (self.n_stacked_obs_participant_ee_pos, 1))
+                )
+                self.stacked_obs_opponent_ee_pos.extend(
+                    np.tile(
+                        opponent_ee_pos_xy_norm, (self.n_stacked_obs_opponent_ee_pos, 1)
+                    )
+                )
+                self._new_episode = False
+            else:
+                if self.evaluate:
+                    self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+                    self.stacked_obs_puck_rot.append(puck_rot_yaw_norm)
+                else:
+                    if self.lose_tracking_n_steps_remaining > 0:
+                        self.stacked_obs_puck_pos.append(self.stacked_obs_puck_pos[-1])
+                        self.stacked_obs_puck_rot.append(self.stacked_obs_puck_rot[-1])
+                        self.lose_tracking_n_steps_remaining -= 1
+                    else:
+                        self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+                        self.stacked_obs_puck_rot.append(puck_rot_yaw_norm)
+
+                        if np.random.rand() < self.lose_tracking_probability:
+                            self.lose_tracking_n_steps_remaining = np.random.randint(
+                                10, 15
+                            )
+                            self.lose_tracking_probability = 0.0
+                        else:
+                            self.lose_tracking_probability += 0.0005
+
+                self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm)
+                self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm)
+
+            # Concaternate episode progress with all temporally-stacked observations
+            obs = np.concatenate(
+                (
+                    np.array((current_penalty_timer,)),
+                    current_joint_pos_normalized,
+                    np.array(self.stacked_obs_puck_pos).flatten(),
+                    np.array(self.stacked_obs_puck_rot).flatten(),
+                    np.array(self.stacked_obs_participant_ee_pos).flatten(),
+                    np.array(self.stacked_obs_opponent_ee_pos).flatten(),
+                )
+            )
+
+        assert obs.shape == self.observation_space.shape
+
         return obs
 
     def process_raw_act(self, action: np.ndarray) -> np.ndarray:
@@ -528,6 +665,13 @@ class SpaceRAgent(AgentBase):
             ],
             dtype=action.dtype,
         )
+
+        if not self.evaluate:
+            target_ee_pos[:2] += np.random.normal(
+                0.0,
+                self.noise_act_std,
+                size=target_ee_pos[:2].shape,
+            )
 
         # Calculate the target joint disp via Inverse Jacobian method
         target_ee_disp = target_ee_pos - self.current_ee_pos

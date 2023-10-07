@@ -28,14 +28,11 @@ from drl_air_hockey.utils.tournament_agent_strategies import (
 )
 from drl_air_hockey.utils.train import train_parallel
 
-AGENT_SCHEME: int = 6
-CONFIG_PRESET: int = 4
+AGENT_SCHEME: int = 7
+CONFIG_PRESET: int = 5
 
-SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 100
-MAX_N_MODELS: int = 20
-
-# OBSERVATION_NOISE_ENABLED: bool = False
-# NOISE_STD: float = 0.025
+SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 250
+MAX_N_MODELS: int = 25
 
 
 def main(argv=None):
@@ -256,6 +253,7 @@ def make_env(
     env.n_stacked_obs_participant_ee_pos = env._agent_1.n_stacked_obs_participant_ee_pos
     env.n_stacked_obs_opponent_ee_pos = env._agent_1.n_stacked_obs_opponent_ee_pos
     env.n_stacked_obs_puck_pos = env._agent_1.n_stacked_obs_puck_pos
+    env.n_stacked_obs_puck_rot = env._agent_1.n_stacked_obs_puck_rot
 
     # Wrap the environment into embodied batch env
     env = EmbodiedChallengeWrapper(env)
@@ -301,11 +299,6 @@ def _apply_monkey_patch_env_step():
         obs1, obs2 = np.split(obs, 2)
         self._previous_obs2 = obs2
         obs = self._agent_1.process_raw_obs(obs=obs1)
-
-        # if OBSERVATION_NOISE_ENABLED:
-        #     obs = np.clip(
-        #         obs + np.random.normal(0.0, NOISE_STD, size=obs.shape), -1.0, 1.0
-        #     )
 
         if RENDER:
             self.render()
