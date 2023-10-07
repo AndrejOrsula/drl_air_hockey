@@ -29,7 +29,7 @@ SK="${SK:-"unknown"}"
 if [[ "${swr_server}" == "unknown" || "${team_name}" == "unknown" || "${login_key}" == "unknown" || "${AK}" == "unknown" || "${SK}" == "unknown" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
     REPOSITORY_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
-    AIR_HOCKEY_CHALLENGE_DIR="$(dirname "${REPOSITORY_DIR}")/2023-challenge"
+    AIR_HOCKEY_CHALLENGE_DIR="$(dirname "${REPOSITORY_DIR}")/_forks/air_hockey_challenge"
     TEAM_INFO_PATH="${TEAM_INFO_PATH:-"${AIR_HOCKEY_CHALLENGE_DIR}/air_hockey_agent/team_info.yml"}"
     if [[ -f "${TEAM_INFO_PATH}" ]]; then
         echo "Using team information from '${TEAM_INFO_PATH}'."

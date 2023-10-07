@@ -4,6 +4,7 @@ import os
 import pathlib
 import shlex
 import subprocess
+import zipfile
 from typing import Dict
 
 import obs
@@ -44,7 +45,7 @@ def parse_team_info(parse_cript: str) -> Dict[str, str]:
 def main(
     parse_cript: str = os.path.join(os.path.dirname(__file__), "_parse_team_info.bash"),
     download_dir: str = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "logs"
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "datasets"
     ),
 ):
     """
@@ -98,7 +99,13 @@ def main(
     if resp["status"] != 200:
         raise Exception("Could not get Object: ", resp["reason"])
 
-    print(f"Successfully downloaded dataset to '{download_path}'")
+    extracted_path = download_path.replace(".zip", "")
+
+    with zipfile.ZipFile(download_path, "r") as zip_ref:
+        zip_ref.extractall(extracted_path)
+    print(f"Successfully downloaded dataset to '{extracted_path}'")
+
+    os.remove(download_path)
 
 
 if __name__ == "__main__":
