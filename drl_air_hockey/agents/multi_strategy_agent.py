@@ -29,7 +29,7 @@ from drl_air_hockey.utils.tournament_agent_strategies import (
 )
 
 
-class MultiStrategyAgent(AgentBase):
+class MultiStrategySpaceRAgent(AgentBase):
     # Dictionary of paths to inference models for each strategy
     INFERENCE_MODELS: Dict[str, str] = {
         "aggressive": path.join(DIR_MODELS, "tournament_aggressive.ckpt"),
