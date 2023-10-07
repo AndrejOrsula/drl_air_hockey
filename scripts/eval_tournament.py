@@ -1,4 +1,4 @@
-#!/usr/bin/env -S python3 -O
+#!/usr/bin/env python3
 
 from argparse import ArgumentParser
 from pathlib import Path
@@ -13,29 +13,27 @@ from baseline.baseline_agent.baseline_agent import BaselineAgent
 
 # Default parameters
 RENDER: bool = False
-N_ENVIRONMENTS: int = 4
+N_ENVIRONMENTS: int = 1
 STEPS_PER_GAME: int = 45000
 
 
 def main(argv=None):
-    # Default path for agent_config have to adjust to your own path. Assumes script is in 2023-challenge/file.py
     agent_config_1_path = Path(__file__).parent.joinpath(
         "/src/2023-challenge/air_hockey_agent/agent_config.yml"
     )
 
-    # For example use the same config for both agents
     agent_config_2_path = agent_config_1_path
 
     with open(agent_config_1_path) as stream:
         agent_config_1 = yaml.safe_load(stream)
-
     with open(agent_config_2_path) as stream:
         agent_config_2 = yaml.safe_load(stream)
 
     agent_config_1.update(get_args())
 
-    # Let the agent play against itself. To let 2 different agents play against each other replace the argument of
-    # build_agent_2 and agent_2_kwargs with the proper function and settings for the different agent
+    # agent_config_1.update({"initial_strategy": "offensive"})
+    # agent_config_2.update({"initial_strategy": "offensive"})
+
     run_tournament(
         build_agent_1=build_agent,
         build_agent_2=build_agent,
@@ -91,6 +89,9 @@ def run_tournament(
     def agent_builder(
         mdp, i, build_agent_1, build_agent_2, agent_1_kwargs, agent_2_kwargs
     ):
+        agent_1_kwargs.update({"agent_id": 1})
+        agent_2_kwargs.update({"agent_id": 2})
+
         if build_agent_1 is None:
             agent_1 = BaselineAgent(mdp.env_info, 2)
         else:
