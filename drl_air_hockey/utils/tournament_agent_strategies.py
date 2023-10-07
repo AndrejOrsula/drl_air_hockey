@@ -30,7 +30,7 @@ class AggressiveAgentStrategy(AgentStrategy):
             operating_area_offset_from_table=0.0,
             operating_area_offset_from_goal=0.0,
             z_position_control_tolerance=1.0,
-            noise_obs_opponent_ee_pos_std=0.01,
+            noise_obs_opponent_ee_pos_std=0.005,
         )
 
 
@@ -48,12 +48,12 @@ class OffensiveAgentStrategy(AgentStrategy):
     def get_env_kwargs(self) -> Dict[str, Any]:
         # regular
         return dict(
-            vel_constraints_scaling_factor=0.525,
+            vel_constraints_scaling_factor=0.5,
             operating_area_offset_from_centre=0.15,
             operating_area_offset_from_table=0.005,
             operating_area_offset_from_goal=0.01,
             z_position_control_tolerance=0.5,
-            noise_obs_opponent_ee_pos_std=0.015,
+            noise_obs_opponent_ee_pos_std=0.0075,
         )
 
 
@@ -71,12 +71,12 @@ class SneakyAgentStrategy(AgentStrategy):
     def get_env_kwargs(self) -> Dict[str, Any]:
         # regular-low
         return dict(
-            vel_constraints_scaling_factor=0.475,
+            vel_constraints_scaling_factor=0.45,
             operating_area_offset_from_centre=0.145,
             operating_area_offset_from_table=0.005,
             operating_area_offset_from_goal=0.0075,
             z_position_control_tolerance=0.475,
-            noise_obs_opponent_ee_pos_std=0.02,
+            noise_obs_opponent_ee_pos_std=0.01,
         )
 
 
@@ -94,12 +94,12 @@ class DefensiveAgentStrategy(AgentStrategy):
     def get_env_kwargs(self) -> Dict[str, Any]:
         # regular-safe
         return dict(
-            vel_constraints_scaling_factor=0.45,
+            vel_constraints_scaling_factor=0.425,
             operating_area_offset_from_centre=0.14,
             operating_area_offset_from_table=0.0025,
             operating_area_offset_from_goal=0.005,
             z_position_control_tolerance=0.45,
-            noise_obs_opponent_ee_pos_std=0.025,
+            noise_obs_opponent_ee_pos_std=0.0125,
         )
 
 
