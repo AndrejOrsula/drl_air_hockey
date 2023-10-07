@@ -202,12 +202,57 @@ def config_dreamerv3(train: bool = False, preset: int = 4) -> Dict[str, Any]:
                 "disag_head.units": 512,
             }
         )
+    elif preset == 5:
+        config = config.update(
+            {
+                "logdir": path.join(
+                    path.dirname(path.dirname(path.abspath(path.dirname(__file__)))),
+                    "logdir_p5_"
+                    + ENV.to_str().lower().replace("7dof-", "")
+                    + "_"
+                    + strategy_to_str(AGENT_STRATEGY),
+                ),
+                "jax.platform": "cpu",
+                "jax.precision": "float32",
+                "jax.prealloc": True,
+                "imag_horizon": 50,
+                # encoder/decoder obs keys
+                "encoder.mlp_keys": "vector",
+                "decoder.mlp_keys": "vector",
+                # encoder
+                "encoder.mlp_layers": 2,
+                "encoder.mlp_units": 512,
+                # decoder
+                "decoder.mlp_layers": 2,
+                "decoder.mlp_units": 512,
+                # rssm
+                "rssm.deter": 512,
+                "rssm.units": 512,
+                "rssm.stoch": 32,
+                "rssm.classes": 32,
+                # actor
+                "actor.layers": 2,
+                "actor.units": 512,
+                # critic
+                "critic.layers": 2,
+                "critic.units": 512,
+                # reward
+                "reward_head.layers": 2,
+                "reward_head.units": 512,
+                # cont
+                "cont_head.layers": 2,
+                "cont_head.units": 512,
+                # disag
+                "disag_head.layers": 2,
+                "disag_head.units": 512,
+            }
+        )
     else:
         raise ValueError(f"Unknown preset: {preset}")
 
     if train:
         # Configuration for a "large" machine
-        num_envs = 10
+        num_envs = 11
         config = config.update(
             {
                 "jax.platform": "gpu",
@@ -216,14 +261,14 @@ def config_dreamerv3(train: bool = False, preset: int = 4) -> Dict[str, Any]:
                 "replay_size": 1e7,
                 "run.steps": 2e8,
                 "run.log_every": 1024,
-                "run.train_ratio": 384,
+                "run.train_ratio": 512,
                 "batch_size": 32,
                 "batch_length": 64,
             }
         )
 
         # # Configuration for a "medium" machine
-        # num_envs = 4
+        # num_envs = 1
         # config = config.update(
         #     {
         #         "jax.platform": "gpu",
@@ -232,14 +277,14 @@ def config_dreamerv3(train: bool = False, preset: int = 4) -> Dict[str, Any]:
         #         "replay_size": 1e7,
         #         "run.steps": 2e8,
         #         "run.log_every": 1024,
-        #         "run.train_ratio": 512,
+        #         "run.train_ratio": 1024,
         #         "batch_size": 16,
         #         "batch_length": 64,
         #     }
         # )
 
         # # Configuration for a "small" machine
-        # num_envs = 6
+        # num_envs = 7
         # config = config.update(
         #     {
         #         "jax.platform": "gpu",
