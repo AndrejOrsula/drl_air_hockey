@@ -2,7 +2,7 @@ import numpy as np
 
 
 class TournamentReward:
-    MAX_TIME_UNTIL_PENALTY_S: int = 15.0
+    MAX_TIME_UNTIL_PENALTY_S: float = 15.0
 
     def __init__(
         self,
@@ -58,7 +58,7 @@ class TournamentReward:
             ## ~ Penalty checking
 
             ## Puck stuck in the middle
-            if np.abs(puck_pos[0]) < 0.15 and np.linalg.norm(puck_vel[0]) < 0.025:
+            if np.abs(puck_pos[0]) < 0.15 and np.abs(puck_vel[0]) < 0.025:
                 r = self._reward_agent_cause_puck_stuck
             ## ~ Puck stuck in the middle
 
