@@ -1,6 +1,11 @@
+from __future__ import annotations
+
+import enum
 from collections import deque
 from os import nice, path
-from typing import Any, Dict, Optional, Tuple
+from sys import getswitchinterval as gsi
+from sys import setswitchinterval as ssi
+from typing import Any, Dict, Optional, Tuple, Union
 
 import dreamerv3
 import gym
@@ -28,30 +33,73 @@ from drl_air_hockey.utils.tournament_agent_strategies import (
     strategy_to_str,
 )
 
+# TODO: Fixate to the better scheme
+MULTI_AGENT_SCHEME: int = 1
+
+
+@enum.unique
+class AgentStrategy(enum.Enum):
+    AGGRESSIVE = enum.auto()
+    OFFENSIVE = enum.auto()
+    SNEAKY = enum.auto()
+    DEFENSIVE = enum.auto()
+
+    def to_str(self) -> str:
+        if self == AgentStrategy.AGGRESSIVE:
+            return "aggressive"
+        elif self == AgentStrategy.OFFENSIVE:
+            return "offensive"
+        elif self == AgentStrategy.SNEAKY:
+            return "sneaky"
+        elif self == AgentStrategy.DEFENSIVE:
+            return "defensive"
+
+    @classmethod
+    def from_str(cls, strategy: str) -> AgentStrategy:
+        if strategy == "aggressive":
+            return AgentStrategy.AGGRESSIVE
+        elif strategy == "offensive":
+            return AgentStrategy.OFFENSIVE
+        elif strategy == "sneaky":
+            return AgentStrategy.SNEAKY
+        elif strategy == "defensive":
+            return AgentStrategy.DEFENSIVE
+
 
 class MultiStrategySpaceRAgent(AgentBase):
     # Dictionary of paths to inference models for each strategy
-    INFERENCE_MODELS: Dict[str, str] = {
-        "aggressive": path.join(DIR_MODELS, "tournament_aggressive.ckpt"),
-        "offensive": path.join(DIR_MODELS, "tournament_offensive.ckpt"),
-        "sneaky": path.join(DIR_MODELS, "tournament_sneaky.ckpt"),
-        "defensive": path.join(DIR_MODELS, "tournament_defensive.ckpt"),
+    INFERENCE_MODELS: Dict[AgentStrategy, str] = {
+        AgentStrategy.AGGRESSIVE: path.join(DIR_MODELS, "tournament_aggressive.ckpt"),
+        AgentStrategy.OFFENSIVE: path.join(DIR_MODELS, "tournament_offensive.ckpt"),
+        AgentStrategy.SNEAKY: path.join(DIR_MODELS, "tournament_sneaky.ckpt"),
+        AgentStrategy.DEFENSIVE: path.join(DIR_MODELS, "tournament_defensive.ckpt"),
     }
 
     # Initial strategy to use
-    INITIAL_STRATEGY = "aggressive"
+    INITIAL_STRATEGY: AgentStrategy = AgentStrategy.AGGRESSIVE
 
     # Maximum number of steps in a game
     N_STEPS_GAME: int = 45000
+    # Number of steps in a single episode (used for penalty computation)
+    N_EPISODE_STEPS: int = 500
     # Number of steps at the beginning of the game meant to explore the best strategy
-    N_STEPS_EARLY_GAME_END: int = 9000
+    N_STEPS_EARLY_GAME_END: int = 7500
     # Number of steps at the end of the game meant to stick to the best strategy
-    N_STEPS_LATE_GAME_START: int = 36000
+    N_STEPS_LATE_GAME_START: int = 32500
+
+    # Maximum number of penalty points per game before getting disqualified
+    MAX_PENALTY_POINTS: int = 135
+    # Number of penalty points before switching to safe play
+    MAX_PENALTY_SAFETY_THRESHOLD: int = 90
+
+    # Maximum time until faul (in seconds)
+    PENALTY_THRESHOLD: float = 0.95 * MAX_TIME_UNTIL_PENALTY_S
 
     def __init__(
         self,
         env_info: Dict[str, Any],
         agent_id: int = 1,
+        initial_strategy: Union[AgentStrategy, str] = INITIAL_STRATEGY,
         **kwargs,
     ):
         # Patch DreamerV3
@@ -78,37 +126,56 @@ class MultiStrategySpaceRAgent(AgentBase):
         self.init_action_scheme()
 
         ## Initialize computation of game metrics
-        # TODO: Implement
         self.init_game_metrics()
 
         ## Initialize algorithm for strategy switching
-        # TODO: Implement
+        self.initial_strategy = (
+            initial_strategy
+            if isinstance(initial_strategy, AgentStrategy)
+            else AgentStrategy.from_str(initial_strategy)
+        )
         self.init_strategy_switching()
 
         self.reset()
 
+        self._original_interval = gsi()
+
     def init_agents(self):
         # Aggressive (Offensive/Fast)
-        self.policy_aggressive = self.init_agent(self.INFERENCE_MODELS["aggressive"])
+        self.policy_aggressive = self._init_agent(
+            self.INFERENCE_MODELS[AgentStrategy.AGGRESSIVE]
+        )
 
-        # Offensive (Offensive/Normal)
-        self.policy_offensive = self.init_agent(self.INFERENCE_MODELS["offensive"])
+        # TODO: Re-enable other policies
 
-        # Sneaky (Defensive/Exploit)
-        self.policy_sneaky = self.init_agent(self.INFERENCE_MODELS["sneaky"])
+        # # Offensive (Offensive/Normal)
+        # self.policy_offensive = self._init_agent(
+        #     self.INFERENCE_MODELS[AgentStrategy.OFFENSIVE]
+        # )
 
-        # Defensive (Defensive/Reset)
-        self.policy_defensive = self.init_agent(self.INFERENCE_MODELS["defensive"])
+        # # Sneaky (Defensive/Exploit)
+        # self.policy_sneaky = self._init_agent(
+        #     self.INFERENCE_MODELS[AgentStrategy.SNEAKY]
+        # )
+
+        # # Defensive (Defensive/Reset)
+        # self.policy_defensive = self._init_agent(
+        #     self.INFERENCE_MODELS[AgentStrategy.DEFENSIVE]
+        # )
 
         # Dictionary of available policies
+        # TODO: Re-enable other policies
         self.policies = {
-            "aggressive": self.policy_aggressive,
-            "offensive": self.policy_offensive,
-            "sneaky": self.policy_sneaky,
-            "defensive": self.policy_defensive,
+            AgentStrategy.AGGRESSIVE: self.policy_aggressive,
+            AgentStrategy.OFFENSIVE: self.policy_aggressive,
+            AgentStrategy.SNEAKY: self.policy_aggressive,
+            AgentStrategy.DEFENSIVE: self.policy_aggressive,
+            # AgentStrategy.OFFENSIVE: self.policy_offensive,
+            # AgentStrategy.SNEAKY: self.policy_sneaky,
+            # AgentStrategy.DEFENSIVE: self.policy_defensive,
         }
 
-    def init_agent(self, model_path: str) -> PolicyEvalDriver:
+    def _init_agent(self, model_path: str) -> PolicyEvalDriver:
         # Setup config
         config = config_dreamerv3()
         config = embodied.Flags(config).parse(argv=[])
@@ -144,13 +211,34 @@ class MultiStrategySpaceRAgent(AgentBase):
         self.penalty_timer = 0.0
 
         ## Stacked observations for the position observations (agent, opponent, puck)
-        self.n_stacked_obs = 4
-        self.stacked_obs_participant_ee_pos = deque([], maxlen=self.n_stacked_obs)
-        self.stacked_obs_opponent_ee_pos = deque([], maxlen=self.n_stacked_obs)
-        self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs)
-
-        ## Number of joints contained in the position vector of agent's joints
-        self.n_joints = 7
+        if MULTI_AGENT_SCHEME == 1:
+            self.n_stacked_obs_participant_ee_pos = 4
+            self.stacked_obs_participant_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_participant_ee_pos
+            )
+            self.n_stacked_obs_opponent_ee_pos = 4
+            self.stacked_obs_opponent_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_opponent_ee_pos
+            )
+            self.n_stacked_obs_puck_pos = 4
+            self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+            self.n_stacked_obs_puck_rot = 0
+            self.stacked_obs_puck_rot = deque([], maxlen=self.n_stacked_obs_puck_rot)
+        elif MULTI_AGENT_SCHEME == 2:
+            self.n_stacked_obs_participant_ee_pos = 5
+            self.stacked_obs_participant_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_participant_ee_pos
+            )
+            self.n_stacked_obs_opponent_ee_pos = 5
+            self.stacked_obs_opponent_ee_pos = deque(
+                [], maxlen=self.n_stacked_obs_opponent_ee_pos
+            )
+            self.n_stacked_obs_puck_pos = 16
+            self.stacked_obs_puck_pos = deque([], maxlen=self.n_stacked_obs_puck_pos)
+            self.n_stacked_obs_puck_rot = 2
+            self.stacked_obs_puck_rot = deque([], maxlen=self.n_stacked_obs_puck_rot)
+        else:
+            raise NotImplementedError
 
     def init_action_scheme(self):
         self.robot_joint_vel_limit_scaled = {}
@@ -163,14 +251,14 @@ class MultiStrategySpaceRAgent(AgentBase):
             SneakyAgentStrategy(),
             DefensiveAgentStrategy(),
         ]:
-            strategy_name = strategy_to_str(strategy)
+            strategy_variant = AgentStrategy.from_str(strategy_to_str(strategy))
             strategy_kwargs = strategy.get_env_kwargs()
 
-            self.robot_joint_vel_limit_scaled[strategy_name] = (
+            self.robot_joint_vel_limit_scaled[strategy_variant] = (
                 strategy_kwargs["vel_constraints_scaling_factor"]
                 * self.robot_joint_vel_limit
             )
-            self.ee_table_minmax[strategy_name] = self.compute_ee_table_minmax(
+            self.ee_table_minmax[strategy_variant] = self.compute_ee_table_minmax(
                 operating_area_offset_from_table=strategy_kwargs[
                     "operating_area_offset_from_table"
                 ],
@@ -181,33 +269,42 @@ class MultiStrategySpaceRAgent(AgentBase):
                     "operating_area_offset_from_goal"
                 ],
             )
-            self.z_position_control_tolerance[strategy_name] = strategy_kwargs[
+            self.z_position_control_tolerance[strategy_variant] = strategy_kwargs[
                 "z_position_control_tolerance"
             ]
 
     def init_strategy_switching(self):
-        self.current_strategy = self.INITIAL_STRATEGY
-        self.policy = self.policies[self.current_strategy]
+        # The current strategy
+        self.current_strategy: AgentStrategy = self.initial_strategy
+
+        # The next strategy that should be used
+        self.next_strategy: Optional[AgentStrategy] = None
+        # Flag to determine if the policy should be changed as soon as possible
+        self.should_change_policy: bool = False
 
         # Flag to determine if the game is still early and there is time to explore strategy
         self.is_early_game = True
         # Flag to determine if the game is late and we should stick to the best/risky strategy
         self.is_late_game = False
 
-        # Determines if the opponent is known to be susceptible to fauls
-        self.is_opponent_susceptible_to_faul: Optional[bool] = None
+        # Determines if the opponent is known to be susceptible to fauls (assume True at the beginning)
+        self.is_opponent_susceptible_to_faul: bool = True
 
-        # Determines if the next puck is initialized on our side
-        # (known due to goal or faul | unknown at beginning and when the puck gets stuck in the middle)
-        self.is_next_puck_start_on_our_side: Optional[bool] = None
+        # TODO: Use this information for something or remove
+        # # Determines if the next puck is initialized on our side
+        # # (known due to goal or faul | unknown at beginning and when the puck gets stuck in the middle)
+        # self.is_next_puck_start_on_our_side: Optional[bool] = None
 
     def init_game_metrics(self):
         # Counter for the entire game (up to 45000 steps)
-        self.step_counter = 0
-        # Counter for a single episode used in penalty computation (resets every 500 steps)
-        self.episode_counter = 0
-        # Number of total exchanges from player's perspective
-        self.n_exchanges = 0
+        self.step_counter: int = 0
+        # Number of total exchanges
+        self.n_exchanges: Dict[str, int] = {
+            AgentStrategy.AGGRESSIVE: 0,
+            AgentStrategy.OFFENSIVE: 0,
+            AgentStrategy.SNEAKY: 0,
+            AgentStrategy.DEFENSIVE: 0,
+        }
 
         # Score (player, opponent)
         self.score: Tuple[int, int] = (0, 0)
@@ -216,30 +313,250 @@ class MultiStrategySpaceRAgent(AgentBase):
         # Number of committed fauls (player, opponent)
         self.fauls: Tuple[int, int] = (0, 0)
 
-        # Number of resets due to goal
-        self.n_resets_due_to_goal = 0
-        # Number of resets due to faul
-        self.n_resets_due_to_faul = 0
-        # Number of resets due to stuck puck
-        self.n_resets_due_to_stuck_puck = 0
+        # TODO: Use this information for something or remove
+        # # Number of resets due to goal
+        # self.n_resets_due_to_goal: int = 0
+        # # Number of resets due to faul
+        # self.n_resets_due_to_faul: int = 0
+        # # Number of resets due to stuck puck
+        # self.n_resets_due_to_stuck_puck: int = 0
+
+        # Variables used for penalty computation (initialization)
+        self.last_puck_pos_xy = np.zeros(2, dtype=np.float64)
 
         ## Estimators of penalties
-        self.n_penalties_ee_pos_player = 0
-        self.n_penalties_ee_pos_opponent = 0
-        self.n_penalties_joint_vel_player = 0
-        self.penalty_occured_this_episode_ee_pos_player = False
-        self.penalty_occured_this_episode_ee_pos_opponent = False
-        self.penalty_occured_this_episode_joint_vel_player = False
+        self.penalty_points_estimate_player: float = 0.0
+        self.penalty_points_player_exceeded_threshold: bool = False
+        self.penalty_points_expectation_per_episode: Dict[str, float] = {
+            AgentStrategy.AGGRESSIVE: 4.0,
+            AgentStrategy.OFFENSIVE: 0.5,
+            AgentStrategy.SNEAKY: 0.1,
+            AgentStrategy.DEFENSIVE: 0.05,
+        }
 
-    ### Checked until this point
+        self.penalty_points_estimate_opponent: int = 0
+        self.penalty_opponent_ee_position_this_episode: bool = False
+        z_tolerance = 0.02
+        self.penalty_ee_pos_x_ub = -self.env_info["robot"]["base_frame"][0][0, 3] + (
+            self.env_info["table"]["length"] / 2 - self.env_info["mallet"]["radius"]
+        )
+        self.penalty_ee_pos_y_lb = -(
+            self.env_info["table"]["width"] / 2 - self.env_info["mallet"]["radius"]
+        )
+        self.penalty_ee_pos_y_ub = (
+            self.env_info["table"]["width"] / 2 - self.env_info["mallet"]["radius"]
+        )
+        self.penalty_ee_pos_z_lb = (
+            self.env_info["robot"]["ee_desired_height"] - z_tolerance
+        )
+        self.penalty_ee_pos_z_ub = (
+            self.env_info["robot"]["ee_desired_height"] + z_tolerance
+        )
+
+    ## Callbacks ##
+
+    def episode_metrics_cb(self):
+        self.penalty_points_estimate_player += (
+            self.penalty_points_expectation_per_episode[self.current_strategy]
+        )
+        if (
+            not self.penalty_points_player_exceeded_threshold
+            and self.penalty_points_estimate_player > self.MAX_PENALTY_SAFETY_THRESHOLD
+        ):
+            self.penalty_points_player_exceeded_threshold = True
+            self.select_next_stragety_based_on_score()
+
+        if self.penalty_opponent_ee_position_this_episode:
+            self.penalty_points_estimate_opponent += 3
+            self.penalty_opponent_ee_position_this_episode = False
+
+        if self.is_early_game:
+            if self.step_counter >= self.N_STEPS_EARLY_GAME_END:
+                self.is_early_game = False
+                self.early_game_end_cb()
+        elif not self.is_late_game:
+            if self.step_counter >= self.N_STEPS_LATE_GAME_START:
+                self.is_late_game = True
+                self.late_game_start_cb()
+
+    def early_game_end_cb(self):
+        self.is_opponent_susceptible_to_faul = (
+            self.determine_if_opponent_is_susceptible_to_faul()
+        )
+        self.select_next_stragety_based_on_score()
+
+    def late_game_start_cb(self):
+        self.is_opponent_susceptible_to_faul = (
+            self.determine_if_opponent_is_susceptible_to_faul()
+        )
+        self.select_next_stragety_based_on_score()
+
+    def reset_metrics_cb(self):
+        # Check if goal was scored, faul was committed or puck got stuck
+        last_puck_pos_x_world_frame = self.last_puck_pos_xy[0] - np.abs(
+            self.robot_base_frame[0][0, 3]
+        )
+        goal_tolerance = 0.05
+        fault_tolerance = 0.025
+        # puck_stuck_tolerance = 0.025
+        if (
+            np.abs(self.last_puck_pos_xy[1])
+            < (self.env_info["table"]["goal_width"] / 2 + goal_tolerance)
+            and last_puck_pos_x_world_frame
+            > (self.env_info["table"]["length"] / 2 - goal_tolerance)
+            and self.last_puck_vel_xy[0] >= 0.0
+        ):
+            self.goals = (self.goals[0] + 1, self.goals[1])
+            # self.is_next_puck_start_on_our_side = False
+            # self.n_resets_due_to_goal += 1
+        elif (
+            np.abs(self.last_puck_pos_xy[1])
+            < (self.env_info["table"]["goal_width"] / 2 + goal_tolerance)
+            and last_puck_pos_x_world_frame
+            < (-self.env_info["table"]["length"] / 2 + goal_tolerance)
+            and self.last_puck_vel_xy[0] <= 0.0
+        ):
+            self.goals = (self.goals[0], self.goals[1] + 1)
+            # self.is_next_puck_start_on_our_side = True
+            # self.n_resets_due_to_goal += 1
+        elif (
+            self.penalty_timer > self.PENALTY_THRESHOLD
+            and np.abs(last_puck_pos_x_world_frame) >= (0.15 - fault_tolerance)
+            and self.penalty_side == -1
+        ):
+            self.fauls = (self.fauls[0] + 1, self.fauls[1])
+            # self.is_next_puck_start_on_our_side = False
+            # self.n_resets_due_to_faul += 1
+        elif (
+            self.penalty_timer > self.PENALTY_THRESHOLD
+            and np.abs(last_puck_pos_x_world_frame) >= (0.15 - fault_tolerance)
+            and self.penalty_side == 1
+        ):
+            self.fauls = (self.fauls[0], self.fauls[1] + 1)
+            # self.is_next_puck_start_on_our_side = True
+            # self.n_resets_due_to_faul += 1
+        # elif np.abs(last_puck_pos_x_world_frame) < (0.15 + puck_stuck_tolerance):
+        #     self.is_next_puck_start_on_our_side = None
+        #     self.n_resets_due_to_stuck_puck += 1
+        # else:
+        #     self.is_next_puck_start_on_our_side = None
+
+        # Update score and check if it changed
+        previous_score = self.score
+        self.score = (
+            self.goals[0] + self.fauls[1] // 3,
+            self.goals[1] + self.fauls[0] // 3,
+        )
+        did_score_change = self.score != previous_score
+
+        # print(
+        #     f"{self.agent_id} => Score: {self.score} | Goals: {self.goals} | Fauls: {self.fauls}"
+        # )
+        # print(
+        #     f"{self.agent_id} => our penalty points: {self.penalty_points_estimate_player} | opponent penalty points: {self.penalty_points_estimate_opponent}"
+        # )
+
+        # Check again if opponent is susceptible to fauls
+        self.is_opponent_susceptible_to_faul = (
+            self.determine_if_opponent_is_susceptible_to_faul()
+        )
+
+        # If still in early game and winning, try the sneaky strategy until the end of the early game
+        if self.is_early_game and self.goals[0] > self.goals[1]:
+            self.select_next_strategy(AgentStrategy.SNEAKY)
+
+        # Update strategy based on updated score if not in early game
+        if not self.is_early_game and did_score_change:
+            self.select_next_stragety_based_on_score()
+
+    def select_next_stragety_based_on_score(self):
+        # If too close to the penalty limit, play SNEAKY or DEFENSIVE
+        if self.penalty_points_player_exceeded_threshold:
+            if self.is_opponent_susceptible_to_faul:
+                self.select_next_strategy(AgentStrategy.SNEAKY)
+            else:
+                self.select_next_strategy(AgentStrategy.DEFENSIVE)
+        elif self.score[0] - self.score[1] >= 2:
+            # If winning by at least 2 points, use sneaky or defensive strategy
+            if self.is_opponent_susceptible_to_faul:
+                self.select_next_strategy(AgentStrategy.SNEAKY)
+            else:
+                self.select_next_strategy(AgentStrategy.DEFENSIVE)
+        elif self.score[0] - self.score[1] == 1:
+            # If winning by 1 point, use offensive strategy
+            self.select_next_strategy(AgentStrategy.OFFENSIVE)
+        elif self.score[0] == self.score[1]:
+            # If stalemate
+            if self.is_late_game:
+                # In late game, use aggressive strategy
+                self.select_next_strategy(AgentStrategy.AGGRESSIVE)
+            else:
+                # Otherwise, use offensive strategy
+                self.select_next_strategy(AgentStrategy.OFFENSIVE)
+        elif self.score[0] < self.score[1]:
+            # If losing, change to aggressive strategy
+            self.select_next_strategy(AgentStrategy.AGGRESSIVE)
+
+        else:
+            pass
+            # print("Error: Unknown score state! | FIX!!!")
+
+    def select_next_strategy(self, strategy: AgentStrategy):
+        # print(f"Switching to {strategy.to_str()} strategy!")
+        self.next_strategy = strategy
+        self.should_change_policy = True
+
+    def use_next_strategy_now(self):
+        # print(f"Using {self.next_strategy.to_str()} strategy now!")
+        self.current_strategy = self.next_strategy
+        self.should_change_policy = None
+        self.next_strategy = None
+
+    def is_safe_to_change_strategy(self) -> bool:
+        last_puck_pos_x_world_frame = self.last_puck_pos_xy[0] - np.abs(
+            self.robot_base_frame[0][0, 3]
+        )
+        return (
+            np.abs(last_puck_pos_x_world_frame) < 0.15
+            and self.last_puck_vel_xy[0] > 0.0
+        ) or (
+            last_puck_pos_x_world_frame < 0.15
+            and np.linalg.norm(self.last_puck_vel_xy) < 0.025
+        )
+
+    def determine_if_opponent_is_susceptible_to_faul(self) -> bool:
+        return (
+            # OR | Has at least 1 estimated penalty point per elapsed episode
+            self.penalty_points_estimate_opponent
+            > (self.step_counter // self.N_EPISODE_STEPS)
+            # OR | At least 20% of exchanges during sneaky strategy resulted in opponent fault
+            or self.fauls[1] > 0.2 * self.n_exchanges[AgentStrategy.SNEAKY]
+            # OR | At least 5% of total exchanges resulted in opponent fault
+            or self.fauls[1]
+            > 0.05
+            * (
+                self.n_exchanges[AgentStrategy.AGGRESSIVE]
+                + self.n_exchanges[AgentStrategy.OFFENSIVE]
+                + self.n_exchanges[AgentStrategy.SNEAKY]
+                + self.n_exchanges[AgentStrategy.DEFENSIVE]
+            )
+        )
+
+    def check_opponent_ee_pos_penalty(self, opponent_ee_pos: np.ndarray) -> bool:
+        return (
+            opponent_ee_pos[2] < self.penalty_ee_pos_z_lb
+            or self.penalty_ee_pos_z_ub < opponent_ee_pos[2]
+            or opponent_ee_pos[1] < self.penalty_ee_pos_y_lb
+            or self.penalty_ee_pos_y_ub < opponent_ee_pos[1]
+            or self.penalty_ee_pos_x_ub < opponent_ee_pos[0]
+        )
 
     @property
     def observation_space(self):
-        # n_obs = 1 + self.n_joints + 6 * self.n_stacked_obs
         return gym.spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(32,),
+            shape=(32 if MULTI_AGENT_SCHEME == 1 else 64,),
             dtype=np.float32,
         )
 
@@ -256,15 +573,36 @@ class MultiStrategySpaceRAgent(AgentBase):
         )
 
     def draw_action(self, obs: np.ndarray) -> np.ndarray:
-        return self.process_raw_act(
-            self.policy.infer(self.process_raw_obs(obs))["action"]
+        ssi(0.1)
+
+        self.step_counter += 1
+        if self.step_counter % self.N_EPISODE_STEPS == 0:
+            self.episode_metrics_cb()
+
+        processed_obs = self.process_raw_obs(obs)
+
+        if self.should_change_policy and self.is_safe_to_change_strategy():
+            self.use_next_strategy_now()
+
+        action = self.process_raw_act(
+            self.policies[self.current_strategy]
+            .infer(processed_obs)["action"]
             .squeeze()
             .clip(-1.0, 1.0)
         )
 
+        ssi(self._original_interval)
+        return action
+
     def reset(self):
+        if self.step_counter != 0:
+            self.reset_metrics_cb()
+
         for policy in self.policies.values():
             policy.reset()
+
+        if self.should_change_policy:
+            self.use_next_strategy_now()
 
         self.penalty_side = None
         self.penalty_timer = 0.0
@@ -272,6 +610,7 @@ class MultiStrategySpaceRAgent(AgentBase):
         self.stacked_obs_participant_ee_pos.clear()
         self.stacked_obs_opponent_ee_pos.clear()
         self.stacked_obs_puck_pos.clear()
+        self.stacked_obs_puck_rot.clear()
 
         self._new_episode = True
 
@@ -303,9 +642,10 @@ class MultiStrategySpaceRAgent(AgentBase):
         self.current_ee_pos_xy_norm = ee_pos_xy_norm
 
         # Opponent's end-effector position
+        opponent_ee_pos = self.get_opponent_ee_pos(obs)
         opponent_ee_pos_xy_norm = np.clip(
             self._normalize_value(
-                self.get_opponent_ee_pos(obs)[:2],
+                opponent_ee_pos[:2],
                 low_in=self.puck_table_minmax[:, 0],
                 high_in=self.puck_table_minmax[:, 1],
             ),
@@ -313,16 +653,30 @@ class MultiStrategySpaceRAgent(AgentBase):
             1.0,
         )
 
+        # Check if the opponent's end-effector position is in the penalty area
+        if not self.penalty_opponent_ee_position_this_episode:
+            self.penalty_opponent_ee_position_this_episode = (
+                self.check_opponent_ee_pos_penalty(opponent_ee_pos)
+            )
+
         # Puck's position
+        puck_pos = self.get_puck_pos(obs)
+        self.last_puck_pos_xy = puck_pos[:2]
         puck_pos_xy_norm = np.clip(
             self._normalize_value(
-                self.get_puck_pos(obs)[:2],
+                puck_pos[:2],
                 low_in=self.puck_table_minmax[:, 0],
                 high_in=self.puck_table_minmax[:, 1],
             ),
             -1.0,
             1.0,
         )
+
+        # Puck's rotation (sin and cos)
+        puck_rot_yaw_norm = np.array([np.sin(puck_pos[2]), np.cos(puck_pos[2])])
+
+        # Puck's x velocity (used for estimating metrics)
+        self.last_puck_vel_xy = self.get_puck_vel(obs)[:2]
 
         ## Compute penalty timer (this is the only difference from scheme 2)
         if self.penalty_side is None:
@@ -332,6 +686,7 @@ class MultiStrategySpaceRAgent(AgentBase):
         else:
             self.penalty_side *= -1
             self.penalty_timer = 0.0
+            self.n_exchanges[self.current_strategy] += 1
         current_penalty_timer = np.clip(
             self.penalty_side * self.penalty_timer / MAX_TIME_UNTIL_PENALTY_S,
             -1.0,
@@ -341,17 +696,23 @@ class MultiStrategySpaceRAgent(AgentBase):
         ## Append current observation to a stack that preserves temporal information
         if self._new_episode:
             self.stacked_obs_puck_pos.extend(
-                np.tile(puck_pos_xy_norm, (self.n_stacked_obs, 1))
+                np.tile(puck_pos_xy_norm, (self.n_stacked_obs_puck_pos, 1))
+            )
+            self.stacked_obs_puck_rot.extend(
+                np.tile(puck_rot_yaw_norm, (self.n_stacked_obs_puck_rot, 1))
             )
             self.stacked_obs_participant_ee_pos.extend(
-                np.tile(ee_pos_xy_norm, (self.n_stacked_obs, 1))
+                np.tile(ee_pos_xy_norm, (self.n_stacked_obs_participant_ee_pos, 1))
             )
             self.stacked_obs_opponent_ee_pos.extend(
-                np.tile(opponent_ee_pos_xy_norm, (self.n_stacked_obs, 1))
+                np.tile(
+                    opponent_ee_pos_xy_norm, (self.n_stacked_obs_opponent_ee_pos, 1)
+                )
             )
             self._new_episode = False
         else:
             self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+            self.stacked_obs_puck_rot.append(puck_rot_yaw_norm)
             self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm)
             self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm)
 
@@ -361,6 +722,7 @@ class MultiStrategySpaceRAgent(AgentBase):
                 np.array((current_penalty_timer,)),
                 current_joint_pos_normalized,
                 np.array(self.stacked_obs_puck_pos).flatten(),
+                np.array(self.stacked_obs_puck_rot).flatten(),
                 np.array(self.stacked_obs_participant_ee_pos).flatten(),
                 np.array(self.stacked_obs_opponent_ee_pos).flatten(),
             )
@@ -547,6 +909,9 @@ class MultiStrategySpaceRAgent(AgentBase):
 
     def get_puck_pos(self, obs):
         return obs[self.env_info["puck_pos_ids"]]
+
+    def get_puck_vel(self, obs):
+        return obs[self.env_info["puck_vel_ids"]]
 
     def get_joint_pos(self, obs):
         return obs[self.env_info["joint_pos_ids"]]
