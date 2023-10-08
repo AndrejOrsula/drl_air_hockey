@@ -58,11 +58,10 @@ class SpaceRAgent(AgentBase):
         # Strictness of the Z position (positive only, lower is more strict)
         z_position_control_tolerance: float = 0.35,
         # Noise to apply to the observation of opponent's end-effector position
-        noise_obs_opponent_ee_pos_std: float = 0.01,
-        noise_obs_ee_pos_std: float = 0.005,
-        noise_obs_puck_pos_std: float = 0.0025,
-        noise_obs_joint_pos_std: float = 0.05,
-        noise_act_std: float = 0.0025,
+        noise_obs_opponent_ee_pos_std: float = 0.008,
+        noise_obs_ee_pos_std: float = 0.002,
+        noise_obs_puck_pos_std: float = 0.004,
+        noise_act_std: float = 0.002,
         **kwargs,
     ):
         ## Chain up the parent implementation
@@ -84,7 +83,6 @@ class SpaceRAgent(AgentBase):
         self.noise_obs_opponent_ee_pos_std = noise_obs_opponent_ee_pos_std
         self.noise_obs_ee_pos_std = noise_obs_ee_pos_std
         self.noise_obs_puck_pos_std = noise_obs_puck_pos_std
-        self.noise_obs_joint_pos_std = noise_obs_joint_pos_std
         self.noise_act_std = noise_act_std
 
         ## Extract information about the environment and write it to members
@@ -297,12 +295,6 @@ class SpaceRAgent(AgentBase):
         ## Normalize used observations
         # Player's Joint positions
         self.current_joint_pos = self.get_joint_pos(obs)
-        if not self.evaluate:
-            self.current_joint_pos += np.random.normal(
-                0.0,
-                self.noise_obs_joint_pos_std,
-                size=self.current_joint_pos.shape,
-            )
         current_joint_pos_normalized = np.clip(
             self._normalize_value(
                 self.current_joint_pos,
@@ -631,7 +623,7 @@ class SpaceRAgent(AgentBase):
                             )
                             self.lose_tracking_probability = 0.0
                         else:
-                            self.lose_tracking_probability += 0.0005
+                            self.lose_tracking_probability += 0.00001
 
                 self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm)
                 self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm)
@@ -836,7 +828,6 @@ class SpaceRAgent(AgentBase):
     def get_puck_pos(self, obs):
         return obs[self.env_info["puck_pos_ids"]]
 
-    # TODO: Consider introducing puck velocity as part of the observation
     # def get_puck_vel(self, obs):
     #     return obs[self.env_info["puck_vel_ids"]]
 

@@ -30,7 +30,6 @@ class AggressiveAgentStrategy(AgentStrategy):
             operating_area_offset_from_table=0.0,
             operating_area_offset_from_goal=0.0,
             z_position_control_tolerance=1.0,
-            noise_obs_opponent_ee_pos_std=0.005,
         )
 
 
@@ -53,7 +52,6 @@ class OffensiveAgentStrategy(AgentStrategy):
             operating_area_offset_from_table=0.005,
             operating_area_offset_from_goal=0.01,
             z_position_control_tolerance=0.5,
-            noise_obs_opponent_ee_pos_std=0.0075,
         )
 
 
@@ -76,7 +74,6 @@ class SneakyAgentStrategy(AgentStrategy):
             operating_area_offset_from_table=0.005,
             operating_area_offset_from_goal=0.0075,
             z_position_control_tolerance=0.475,
-            noise_obs_opponent_ee_pos_std=0.01,
         )
 
 
@@ -99,7 +96,6 @@ class DefensiveAgentStrategy(AgentStrategy):
             operating_area_offset_from_table=0.0025,
             operating_area_offset_from_goal=0.005,
             z_position_control_tolerance=0.45,
-            noise_obs_opponent_ee_pos_std=0.0125,
         )
 
 
