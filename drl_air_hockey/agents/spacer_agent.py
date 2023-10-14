@@ -657,12 +657,12 @@ class SpaceRAgent(AgentBase):
             dtype=action.dtype,
         )
 
-        if not self.evaluate:
-            target_ee_pos[:2] += np.random.normal(
-                0.0,
-                self.noise_act_std,
-                size=target_ee_pos[:2].shape,
-            )
+        # if not self.evaluate:
+        #     target_ee_pos[:2] += np.random.normal(
+        #         0.0,
+        #         self.noise_act_std,
+        #         size=target_ee_pos[:2].shape,
+        #     )
 
         # Calculate the target joint disp via Inverse Jacobian method
         target_ee_disp = target_ee_pos - self.current_ee_pos
