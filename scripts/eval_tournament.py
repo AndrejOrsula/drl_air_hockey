@@ -11,6 +11,13 @@ from air_hockey_challenge.utils.tournament_agent_wrapper import (
 )
 from baseline.baseline_agent.baseline_agent import BaselineAgent
 
+from drl_air_hockey.utils.tournament_agent_strategies import (
+    AggressiveAgentStrategy,
+    DefensiveAgentStrategy,
+    OffensiveAgentStrategy,
+    SneakyAgentStrategy,
+)
+
 # Default parameters
 RENDER: bool = False
 N_ENVIRONMENTS: int = 1
@@ -33,6 +40,41 @@ def main(argv=None):
 
     # agent_config_1.update({"initial_strategy": "offensive"})
     # agent_config_2.update({"initial_strategy": "offensive"})
+
+    agent_config_1.update(
+        {
+            "scheme": 6,
+            "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_aggressive.ckpt",
+            **AggressiveAgentStrategy().get_env_kwargs(),
+        }
+        # {
+        #     "scheme": 6,
+        #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_offensive.ckpt",
+        #     **OffensiveAgentStrategy().get_env_kwargs(),
+        # }
+        # {
+        #     "scheme": 6,
+        #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_sneaky.ckpt",
+        #     **SneakyAgentStrategy().get_env_kwargs(),
+        # }
+    )
+    agent_config_2.update(
+        {
+            "scheme": 6,
+            "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_aggressive.ckpt",
+            **AggressiveAgentStrategy().get_env_kwargs(),
+        }
+        # {
+        #     "scheme": 6,
+        #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_offensive.ckpt",
+        #     **OffensiveAgentStrategy().get_env_kwargs(),
+        # }
+        # {
+        #     "scheme": 6,
+        #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_sneaky.ckpt",
+        #     **SneakyAgentStrategy().get_env_kwargs(),
+        # }
+    )
 
     run_tournament(
         build_agent_1=build_agent,
