@@ -29,3 +29,6 @@ venv/
 **/logs/
 **/logdir/
 **/logdir_*/
+
+## Datasets
+**/datasets/

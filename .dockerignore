@@ -1,5 +1,8 @@
 ## Docker
 Dockerfile
+Dockerfile.train
+Dockerfile.eval
+.docker/
 .dockerignore
 .docker/host
 .docker/*.bash
@@ -53,3 +56,6 @@ venv/
 **/logs/
 **/logdir/
 **/logdir_*/
+
+## Datasets
+**/datasets/
