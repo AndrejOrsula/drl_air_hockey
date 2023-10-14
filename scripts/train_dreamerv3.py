@@ -253,7 +253,8 @@ def make_env(
     env.n_stacked_obs_participant_ee_pos = env._agent_1.n_stacked_obs_participant_ee_pos
     env.n_stacked_obs_opponent_ee_pos = env._agent_1.n_stacked_obs_opponent_ee_pos
     env.n_stacked_obs_puck_pos = env._agent_1.n_stacked_obs_puck_pos
-    env.n_stacked_obs_puck_rot = env._agent_1.n_stacked_obs_puck_rot
+    if env.scheme == 7:
+        env.n_stacked_obs_puck_rot = env._agent_1.n_stacked_obs_puck_rot
 
     # Wrap the environment into embodied batch env
     env = EmbodiedChallengeWrapper(env)
