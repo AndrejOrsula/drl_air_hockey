@@ -48,14 +48,19 @@ def main(argv=None):
             **AggressiveAgentStrategy().get_env_kwargs(),
         }
         # {
-        #     "scheme": 6,
+        #     "scheme": 7,
         #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_offensive.ckpt",
         #     **OffensiveAgentStrategy().get_env_kwargs(),
         # }
         # {
-        #     "scheme": 6,
+        #     "scheme": 7,
         #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_sneaky.ckpt",
         #     **SneakyAgentStrategy().get_env_kwargs(),
+        # }
+        # {
+        #     "scheme": 7,
+        #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_defensive.ckpt",
+        #     **DefensiveAgentStrategy().get_env_kwargs(),
         # }
     )
     agent_config_2.update(
@@ -65,14 +70,19 @@ def main(argv=None):
             **AggressiveAgentStrategy().get_env_kwargs(),
         }
         # {
-        #     "scheme": 6,
+        #     "scheme": 7,
         #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_offensive.ckpt",
         #     **OffensiveAgentStrategy().get_env_kwargs(),
         # }
         # {
-        #     "scheme": 6,
+        #     "scheme": 7,
         #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_sneaky.ckpt",
         #     **SneakyAgentStrategy().get_env_kwargs(),
+        # }
+        # {
+        #     "scheme": 7,
+        #     "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_defensive.ckpt",
+        #     **DefensiveAgentStrategy().get_env_kwargs(),
         # }
     )
 
