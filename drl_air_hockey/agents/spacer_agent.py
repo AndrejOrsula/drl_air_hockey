@@ -46,9 +46,9 @@ class SpaceRAgent(AgentBase):
         scheme: int = 7,
         # Velocity constraints (0.5 is about safe)
         vel_constraints_scaling_factor: float = 0.65,
-        # # Whether to filter actions and by how much
-        # filter_actions_enabled: bool = False,
-        # filter_actions_coefficient: float = 0.05,
+        # Whether to filter actions and by how much
+        filter_actions_enabled: bool = True,
+        filter_actions_coefficient: float = 0.1,
         # Extra offsets for operating area of the agent (in meters)
         operating_area_offset_from_centre: float = 0.17,
         operating_area_offset_from_table: float = 0.02,
@@ -56,10 +56,13 @@ class SpaceRAgent(AgentBase):
         # Strictness of the Z position (positive only, lower is more strict)
         z_position_control_tolerance: float = 0.35,
         # Noise to apply to the observation of opponent's end-effector position
-        # noise_obs_opponent_ee_pos_std: float = 0.0008,
-        # noise_obs_ee_pos_std: float = 0.0002,
-        # noise_obs_puck_pos_std: float = 0.0004,
-        # noise_act_std: float = 0.0001,
+        noise_obs_opponent_ee_pos_std: float = 0.01,
+        noise_obs_ee_pos_std: float = 0.0005,
+        noise_obs_puck_pos_std: float = 0.002,
+        noise_act_std: float = 0.0005,
+        loss_of_tracking_prob_inc_per_step: float = 0.00002,
+        loss_of_tracking_min_steps: int = 5,
+        loss_of_tracking_max_steps: int = 15,
         **kwargs,
     ):
         ## Chain up the parent implementation
@@ -72,16 +75,24 @@ class SpaceRAgent(AgentBase):
 
         self.scheme = scheme
         self.vel_constraints_scaling_factor = vel_constraints_scaling_factor
-        # self.filter_actions_enabled = filter_actions_enabled
-        # self.filter_actions_coefficient = filter_actions_coefficient
+        self.filter_actions_enabled = filter_actions_enabled
+        self.filter_actions_coefficient = filter_actions_coefficient
         self.operating_area_offset_from_centre = operating_area_offset_from_centre
         self.operating_area_offset_from_table = operating_area_offset_from_table
         self.operating_area_offset_from_goal = operating_area_offset_from_goal
         self.z_position_control_tolerance = z_position_control_tolerance
-        # self.noise_obs_opponent_ee_pos_std = noise_obs_opponent_ee_pos_std
-        # self.noise_obs_ee_pos_std = noise_obs_ee_pos_std
-        # self.noise_obs_puck_pos_std = noise_obs_puck_pos_std
-        # self.noise_act_std = noise_act_std
+
+        self.noise_obs_opponent_ee_pos_std = noise_obs_opponent_ee_pos_std
+        self.noise_obs_ee_pos_std = noise_obs_ee_pos_std
+        self.noise_obs_puck_pos_std = noise_obs_puck_pos_std
+        self.noise_act_std = noise_act_std
+
+        # Emulate loss of tracking during training
+        self.loss_of_tracking_prob_inc_per_step = loss_of_tracking_prob_inc_per_step
+        self.loss_of_tracking_min_steps = loss_of_tracking_min_steps
+        self.loss_of_tracking_max_steps = loss_of_tracking_max_steps
+        self.lose_tracking_probability = 0.0
+        self.lose_tracking_n_steps_remaining = 0
 
         ## Extract information about the environment and write it to members
         self.extract_env_info()
@@ -179,11 +190,6 @@ class SpaceRAgent(AgentBase):
         else:
             raise ValueError("Invalid scheme")
 
-        # Emulate loss of tracking during training
-        # if not self.evaluate:
-        #     self.lose_tracking_probability = 0.0
-        #     self.lose_tracking_n_steps_remaining = 0
-
         ## For evaluation, the agent is fully internal and loaded from a checkpoint.
         if self.evaluate:
             try:
@@ -273,9 +279,12 @@ class SpaceRAgent(AgentBase):
     def reset(self):
         if self.evaluate:
             self.policy_driver.reset()
-        # else:
-        #     self.lose_tracking_probability = 0.0
-        #     self.lose_tracking_n_steps_remaining = 0
+
+        self.lose_tracking_probability = 0.0
+        self.lose_tracking_n_steps_remaining = 0
+
+        if self.filter_actions_enabled:
+            self.previous_ee_pos_xy_norm = None
 
         self.penalty_timer = 0.0
         if self.scheme != 2:
@@ -305,12 +314,12 @@ class SpaceRAgent(AgentBase):
 
         # Player's end-effector position
         self.current_ee_pos = self.get_ee_pose(obs)[0]
-        # if not self.evaluate:
-        #     self.current_ee_pos += np.random.normal(
-        #         0.0,
-        #         self.noise_obs_ee_pos_std,
-        #         size=self.current_ee_pos.shape,
-        #     )
+        if not self.evaluate:
+            self.current_ee_pos += np.random.normal(
+                0.0,
+                self.noise_obs_ee_pos_std,
+                size=self.current_ee_pos.shape,
+            )
         ee_pos_xy_norm = np.clip(
             self._normalize_value(
                 self.current_ee_pos[:2],
@@ -324,12 +333,12 @@ class SpaceRAgent(AgentBase):
 
         # Opponent's end-effector position
         opponent_ee_pos_xy = self.get_opponent_ee_pos(obs)[:2]
-        # if not self.evaluate:
-        #     opponent_ee_pos_xy += np.random.normal(
-        #         0.0,
-        #         self.noise_obs_opponent_ee_pos_std,
-        #         size=opponent_ee_pos_xy.shape,
-        #     )
+        if not self.evaluate:
+            opponent_ee_pos_xy += np.random.normal(
+                0.0,
+                self.noise_obs_opponent_ee_pos_std,
+                size=opponent_ee_pos_xy.shape,
+            )
         opponent_ee_pos_xy_norm = np.clip(
             self._normalize_value(
                 opponent_ee_pos_xy,
@@ -342,12 +351,12 @@ class SpaceRAgent(AgentBase):
 
         # Puck's position
         puck_pos = self.get_puck_pos(obs)
-        # if not self.evaluate:
-        #     puck_pos += np.random.normal(
-        #         0.0,
-        #         self.noise_obs_puck_pos_std,
-        #         size=puck_pos.shape,
-        #     )
+        if not self.evaluate:
+            puck_pos += np.random.normal(
+                0.0,
+                self.noise_obs_puck_pos_std,
+                size=puck_pos.shape,
+            )
         puck_pos_xy_norm = np.clip(
             self._normalize_value(
                 puck_pos[:2],
@@ -602,28 +611,29 @@ class SpaceRAgent(AgentBase):
                 )
                 self._new_episode = False
             else:
-                # if self.evaluate:
-                #     self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
-                #     self.stacked_obs_puck_rot.append(puck_rot_yaw_norm)
-                # else:
-                #     if self.lose_tracking_n_steps_remaining > 0:
-                #         self.stacked_obs_puck_pos.append(self.stacked_obs_puck_pos[-1])
-                #         self.stacked_obs_puck_rot.append(self.stacked_obs_puck_rot[-1])
-                #         self.lose_tracking_n_steps_remaining -= 1
-                #     else:
-                #         self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
-                #         self.stacked_obs_puck_rot.append(puck_rot_yaw_norm)
+                if self.evaluate:
+                    self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+                    self.stacked_obs_puck_rot.append(puck_rot_yaw_norm)
+                else:
+                    if self.lose_tracking_n_steps_remaining > 0:
+                        self.stacked_obs_puck_pos.append(self.stacked_obs_puck_pos[-1])
+                        self.stacked_obs_puck_rot.append(self.stacked_obs_puck_rot[-1])
+                        self.lose_tracking_n_steps_remaining -= 1
+                    else:
+                        self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
+                        self.stacked_obs_puck_rot.append(puck_rot_yaw_norm)
 
-                #         if np.random.rand() < self.lose_tracking_probability:
-                #             self.lose_tracking_n_steps_remaining = np.random.randint(
-                #                 10, 15
-                #             )
-                #             self.lose_tracking_probability = 0.0
-                #         else:
-                #             self.lose_tracking_probability += 0.00001
+                        if np.random.rand() < self.lose_tracking_probability:
+                            self.lose_tracking_n_steps_remaining = np.random.randint(
+                                self.loss_of_tracking_min_steps,
+                                self.loss_of_tracking_max_steps,
+                            )
+                            self.lose_tracking_probability = 0.0
+                        else:
+                            self.lose_tracking_probability += (
+                                self.loss_of_tracking_prob_inc_per_step
+                            )
 
-                self.stacked_obs_puck_pos.append(puck_pos_xy_norm)
-                self.stacked_obs_puck_rot.append(puck_rot_yaw_norm)
                 self.stacked_obs_participant_ee_pos.append(ee_pos_xy_norm)
                 self.stacked_obs_opponent_ee_pos.append(opponent_ee_pos_xy_norm)
 
@@ -644,11 +654,22 @@ class SpaceRAgent(AgentBase):
         return obs
 
     def process_raw_act(self, action: np.ndarray) -> np.ndarray:
+        target_ee_pos_xy = action
+        # Filter the target position
+        if self.filter_actions_enabled:
+            if self.previous_ee_pos_xy_norm is None:
+                self.previous_ee_pos_xy_norm = self.current_ee_pos_xy_norm
+            target_ee_pos_xy = (
+                self.filter_actions_coefficient * self.previous_ee_pos_xy_norm
+                + (1 - self.filter_actions_coefficient) * target_ee_pos_xy
+            )
+            self.previous_ee_pos_xy_norm = target_ee_pos_xy
+
         # Unnormalize the action and combine with desired height
         target_ee_pos = np.array(
             [
                 *self._unnormalize_value(
-                    action,
+                    target_ee_pos_xy,
                     low_out=self.ee_table_minmax[:, 0],
                     high_out=self.ee_table_minmax[:, 1],
                 ),
@@ -657,12 +678,12 @@ class SpaceRAgent(AgentBase):
             dtype=action.dtype,
         )
 
-        # if not self.evaluate:
-        #     target_ee_pos[:2] += np.random.normal(
-        #         0.0,
-        #         self.noise_act_std,
-        #         size=target_ee_pos[:2].shape,
-        #     )
+        if not self.evaluate:
+            target_ee_pos[:2] += np.random.normal(
+                0.0,
+                self.noise_act_std,
+                size=target_ee_pos[:2].shape,
+            )
 
         # Calculate the target joint disp via Inverse Jacobian method
         target_ee_disp = target_ee_pos - self.current_ee_pos

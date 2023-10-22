@@ -79,11 +79,11 @@ class SneakyAgentStrategy(AgentStrategy):
 
 class DefensiveAgentStrategy(AgentStrategy):
     def get_reward_function(self) -> TournamentReward:
-        # make puck stuck (+1/6)  |  receive goal (-1.0), cause faul (-1/3)
+        # make puck stuck (+1/10)  |  receive goal (-1.0), cause faul (-1/3)
         return TournamentReward(
             reward_agent_score_goal=0.0,
             reward_opponent_faul=0.0,
-            reward_agent_cause_puck_stuck=+1.0 / 6.0,
+            reward_agent_cause_puck_stuck=+1.0 / 10.0,
             reward_agent_receive_goal=-1.0,
             reward_agent_faul=-1.0 / 3.0,
         )
@@ -91,11 +91,11 @@ class DefensiveAgentStrategy(AgentStrategy):
     def get_env_kwargs(self) -> Dict[str, Any]:
         # regular-safe
         return dict(
-            vel_constraints_scaling_factor=0.425,
-            operating_area_offset_from_centre=0.14,
-            operating_area_offset_from_table=0.0025,
-            operating_area_offset_from_goal=0.005,
-            z_position_control_tolerance=0.45,
+            vel_constraints_scaling_factor=0.45,
+            operating_area_offset_from_centre=0.145,
+            operating_area_offset_from_table=0.005,
+            operating_area_offset_from_goal=0.0075,
+            z_position_control_tolerance=0.475,
         )
 
 

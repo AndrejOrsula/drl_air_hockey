@@ -43,7 +43,7 @@ def main(argv=None):
 
     agent_config_1.update(
         {
-            "scheme": 6,
+            "scheme": 7,
             "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_aggressive.ckpt",
             **AggressiveAgentStrategy().get_env_kwargs(),
         }
@@ -60,7 +60,7 @@ def main(argv=None):
     )
     agent_config_2.update(
         {
-            "scheme": 6,
+            "scheme": 7,
             "load_model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_aggressive.ckpt",
             **AggressiveAgentStrategy().get_env_kwargs(),
         }

@@ -31,8 +31,8 @@ from drl_air_hockey.utils.train import train_parallel
 AGENT_SCHEME: int = 7
 CONFIG_PRESET: int = 5
 
-SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 250
-MAX_N_MODELS: int = 25
+SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 500
+MAX_N_MODELS: int = 16
 
 
 def main(argv=None):
