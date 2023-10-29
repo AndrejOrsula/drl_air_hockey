@@ -24,6 +24,10 @@ Dockerfile.eval
 ## Markdown
 **/CHANGELOG.md
 
+## Models
+drl_air_hockey/agents/models/*
+!drl_air_hockey/agents/models/tournament*.ckpt
+
 ### Inherited from gitignore ###
 ## Python
 **/__pycache__/
