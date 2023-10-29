@@ -78,6 +78,7 @@ def main(
     server = f"https://obs.{swr_server}.myhuaweicloud.eu"
     bucketName = "air-hockey-dataset-eu"
     objectKey = f"data-{team_name}.zip"
+    # objectKey = f"friendly_game/data-{team_name}.zip"
     obsClient = obs.ObsClient(access_key_id=AK, secret_access_key=SK, server=server)
 
     resp = obsClient.getObjectMetadata(bucketName, objectKey)

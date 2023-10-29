@@ -8,7 +8,7 @@ from air_hockey_challenge.framework import AirHockeyChallengeWrapper
 def main(argv=None):
     replay_dataset(
         "tournament",
-        "/src/drl_air_hockey/datasets/dataset-05-Oct-2023-12/Home_vs_Away/Game_0/Home/dataset.pkl",
+        "/src/drl_air_hockey/datasets/dataset_XYZ/Home_vs_Away/Game_0/Home/dataset.pkl",
     )
 
 
