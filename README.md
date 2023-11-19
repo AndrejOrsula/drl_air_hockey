@@ -6,7 +6,7 @@
 
 This is a participant repository for the [Robot Air Hockey Challenge 2023](https://air-hockey-challenge.robot-learning.net).
 
-https://github.com/AndrejOrsula/drl_air_hockey/assets/22929099/01f000cf-0ccd-41ff-a76d-15fb86d8d0aa
+https://github.com/AndrejOrsula/drl_air_hockey/assets/22929099/c145d8ad-1762-4b45-be67-2862b04d63f8
 
 ## Overview
 
