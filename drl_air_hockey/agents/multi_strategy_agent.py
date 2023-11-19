@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 from collections import deque
-from os import nice, path
+from os import path
 from sys import getswitchinterval as gsi
 from sys import setswitchinterval as ssi
 from typing import Any, Dict, Optional, Tuple
@@ -27,32 +27,32 @@ from drl_air_hockey.utils.env_wrapper import EmbodiedChallengeWrapper
 from drl_air_hockey.utils.eval import PolicyEvalDriver
 from drl_air_hockey.utils.tournament_agent_strategies import (
     AggressiveAgentStrategy,
+    BalancedAgentStrategy,
     DefensiveAgentStrategy,
-    OffensiveAgentStrategy,
     strategy_to_str,
 )
 
 
 @enum.unique
 class AgentStrategy(enum.Enum):
+    BALANCED = enum.auto()
     AGGRESSIVE = enum.auto()
-    OFFENSIVE = enum.auto()
     DEFENSIVE = enum.auto()
 
     def to_str(self) -> str:
-        if self == AgentStrategy.AGGRESSIVE:
+        if self == AgentStrategy.BALANCED:
+            return "balanced"
+        elif self == AgentStrategy.AGGRESSIVE:
             return "aggressive"
-        elif self == AgentStrategy.OFFENSIVE:
-            return "offensive"
         elif self == AgentStrategy.DEFENSIVE:
             return "defensive"
 
     @classmethod
     def from_str(cls, strategy: str) -> AgentStrategy:
-        if strategy == "aggressive":
+        if strategy == "balanced" or strategy == "offensive":
+            return AgentStrategy.BALANCED
+        elif strategy == "aggressive":
             return AgentStrategy.AGGRESSIVE
-        elif strategy == "offensive":
-            return AgentStrategy.OFFENSIVE
         elif strategy == "defensive":
             return AgentStrategy.DEFENSIVE
 
@@ -60,13 +60,13 @@ class AgentStrategy(enum.Enum):
 class MultiStrategySpaceRAgent(AgentBase):
     # Dictionary of paths to inference models for each strategy
     INFERENCE_MODELS: Dict[AgentStrategy, str] = {
+        AgentStrategy.BALANCED: path.join(DIR_MODELS, "tournament_balanced.ckpt"),
         AgentStrategy.AGGRESSIVE: path.join(DIR_MODELS, "tournament_aggressive.ckpt"),
-        AgentStrategy.OFFENSIVE: path.join(DIR_MODELS, "tournament_offensive.ckpt"),
         AgentStrategy.DEFENSIVE: path.join(DIR_MODELS, "tournament_defensive.ckpt"),
     }
 
     # Initial strategy to use
-    INITIAL_STRATEGY: AgentStrategy = AgentStrategy.OFFENSIVE
+    INITIAL_STRATEGY: AgentStrategy = AgentStrategy.BALANCED
 
     # Maximum number of steps in a game
     N_STEPS_GAME: int = 45000
@@ -81,18 +81,16 @@ class MultiStrategySpaceRAgent(AgentBase):
     # Maximum time until faul (in seconds), used for detection of fauls
     PENALTY_THRESHOLD: float = 0.95 * MAX_TIME_UNTIL_PENALTY_S
 
+    # Filtering of high-level actions
+    FILTER_ACTIONS_ENABLED: bool = True
+    FILTER_ACTIONS_COEFFICIENT: float = 0.75
+
     def __init__(
         self,
         env_info: Dict[str, Any],
         agent_id: int = 1,
         **kwargs,
     ):
-        ## Make things nice
-        try:
-            nice(69)
-        except:
-            pass
-
         ## Chain up the parent implementation
         AgentBase.__init__(self, env_info=env_info, agent_id=agent_id, **kwargs)
 
@@ -122,13 +120,13 @@ class MultiStrategySpaceRAgent(AgentBase):
     def init_agents(self):
         # Dictionary of available policies
         self.policies = {
+            # Balanced
+            AgentStrategy.BALANCED: self._init_agent(
+                self.INFERENCE_MODELS[AgentStrategy.BALANCED]
+            ),
             # Aggressive (Offensive/Fast)
             AgentStrategy.AGGRESSIVE: self._init_agent(
                 self.INFERENCE_MODELS[AgentStrategy.AGGRESSIVE]
-            ),
-            # Offensive (Offensive/Normal)
-            AgentStrategy.OFFENSIVE: self._init_agent(
-                self.INFERENCE_MODELS[AgentStrategy.OFFENSIVE]
             ),
             # Defensive (Defensive/Normal)
             AgentStrategy.DEFENSIVE: self._init_agent(
@@ -191,8 +189,8 @@ class MultiStrategySpaceRAgent(AgentBase):
         self.z_position_control_tolerance = {}
 
         for strategy in [
+            BalancedAgentStrategy(),
             AggressiveAgentStrategy(),
-            OffensiveAgentStrategy(),
             DefensiveAgentStrategy(),
         ]:
             strategy_variant = AgentStrategy.from_str(strategy_to_str(strategy))
@@ -235,8 +233,8 @@ class MultiStrategySpaceRAgent(AgentBase):
         self.step_counter: int = 0
         # Number of total exchanges
         self.n_exchanges: Dict[str, int] = {
+            AgentStrategy.BALANCED: 0,
             AgentStrategy.AGGRESSIVE: 0,
-            AgentStrategy.OFFENSIVE: 0,
             AgentStrategy.DEFENSIVE: 0,
         }
 
@@ -254,9 +252,9 @@ class MultiStrategySpaceRAgent(AgentBase):
         self.penalty_points_estimate_player: float = 0.0
         self.penalty_points_player_exceeded_threshold: bool = False
         self.penalty_points_expectation_per_episode: Dict[str, float] = {
+            AgentStrategy.BALANCED: 0.3,
             AgentStrategy.AGGRESSIVE: 5.0,
-            AgentStrategy.OFFENSIVE: 0.3,
-            AgentStrategy.DEFENSIVE: 0.4,
+            AgentStrategy.DEFENSIVE: 0.25,
         }
 
     ## Callbacks ##
@@ -317,8 +315,8 @@ class MultiStrategySpaceRAgent(AgentBase):
             # If winning by at least 2 points and puck is starting at our side, use defensive strategy
             self.select_next_strategy(AgentStrategy.DEFENSIVE)
         elif self.score[0] - self.score[1] >= 1:
-            # If winning by at least 1 point, use offensive strategy
-            self.select_next_strategy(AgentStrategy.OFFENSIVE)
+            # If winning by at least 1 point, use balanced strategy
+            self.select_next_strategy(AgentStrategy.BALANCED)
         elif self.score[0] == self.score[1]:
             # If stalemate
             if not self.penalty_points_player_exceeded_threshold and (
@@ -327,13 +325,13 @@ class MultiStrategySpaceRAgent(AgentBase):
                 # If the threshold was not yet exceeded and it is late game, use aggressive strategy
                 self.select_next_strategy(AgentStrategy.AGGRESSIVE)
             else:
-                # Otherwise, use offensive strategy
-                self.select_next_strategy(AgentStrategy.OFFENSIVE)
+                # Otherwise, use balanced strategy
+                self.select_next_strategy(AgentStrategy.BALANCED)
         else:
             # If losing
             if self.penalty_points_player_exceeded_threshold:
-                # If the threshold was exceeded, use offensive strategy
-                self.select_next_strategy(AgentStrategy.OFFENSIVE)
+                # If the threshold was exceeded, use balanced strategy
+                self.select_next_strategy(AgentStrategy.BALANCED)
             else:
                 # Otherwise, use aggressive strategy
                 self.select_next_strategy(AgentStrategy.AGGRESSIVE)
@@ -343,8 +341,8 @@ class MultiStrategySpaceRAgent(AgentBase):
             self.current_strategy == AgentStrategy.DEFENSIVE
             and not self.is_puck_reachable()
         ):
-            # Switch from defensive back to offensive strategy if the puck is not reachable
-            self.force_strategy(AgentStrategy.OFFENSIVE)
+            # Switch from defensive back to balanced strategy if the puck is not reachable
+            self.force_strategy(AgentStrategy.BALANCED)
 
     def select_next_strategy(self, strategy: AgentStrategy):
         self.next_strategy = strategy
@@ -414,7 +412,7 @@ class MultiStrategySpaceRAgent(AgentBase):
                 ):
                     self.penalty_points_player_exceeded_threshold = True
                     if self.current_strategy == AgentStrategy.AGGRESSIVE:
-                        self.select_next_strategy(AgentStrategy.OFFENSIVE)
+                        self.select_next_strategy(AgentStrategy.BALANCED)
 
         processed_obs = self.process_raw_obs(obs)
 
@@ -441,6 +439,9 @@ class MultiStrategySpaceRAgent(AgentBase):
 
         if self.should_change_policy:
             self.use_next_strategy_now()
+
+        if self.FILTER_ACTIONS_ENABLED:
+            self.previous_ee_pos_xy_norm = None
 
         self.penalty_side = None
         self.penalty_timer = 0.0
@@ -512,7 +513,7 @@ class MultiStrategySpaceRAgent(AgentBase):
         # Puck's x velocity (used for estimating metrics)
         self.last_puck_vel_xy = self.get_puck_vel(obs)[:2]
 
-        ## Compute penalty timer (this is the only difference from scheme 2)
+        ## Compute penalty timer
         if self.penalty_side is None:
             self.penalty_side = np.sign(puck_pos_xy_norm[0])
         elif np.sign(puck_pos_xy_norm[0]) == self.penalty_side:
@@ -570,6 +571,16 @@ class MultiStrategySpaceRAgent(AgentBase):
 
     def process_raw_act(self, action: np.ndarray) -> np.ndarray:
         target_ee_pos_xy = action
+
+        # Filter the target position
+        if self.FILTER_ACTIONS_ENABLED:
+            if self.previous_ee_pos_xy_norm is None:
+                self.previous_ee_pos_xy_norm = self.current_ee_pos_xy_norm
+            target_ee_pos_xy = (
+                self.FILTER_ACTIONS_COEFFICIENT * self.previous_ee_pos_xy_norm
+                + (1 - self.FILTER_ACTIONS_COEFFICIENT) * target_ee_pos_xy
+            )
+            self.previous_ee_pos_xy_norm = target_ee_pos_xy
 
         # Unnormalize the action and combine with desired height
         target_ee_pos = np.array(

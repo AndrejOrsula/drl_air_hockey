@@ -1,5 +1,5 @@
 from collections import deque
-from os import nice, path
+from os import path
 from typing import Any, Dict, Optional
 
 import dreamerv3
@@ -41,14 +41,14 @@ class SpaceRAgent(AgentBase):
         # Whether to train or evaluate (inference)
         train: bool = False,
         # Path to the model to load for inference
-        load_model_path: Optional[str] = None,
+        model_path: Optional[str] = None,
         # Observation scheme used by the agent
         scheme: int = 7,
         # Velocity constraints (0.5 is about safe)
         vel_constraints_scaling_factor: float = 0.65,
         # Whether to filter actions and by how much
         filter_actions_enabled: bool = True,
-        filter_actions_coefficient: float = 0.1,
+        filter_actions_coefficient: float = 0.75,
         # Extra offsets for operating area of the agent (in meters)
         operating_area_offset_from_centre: float = 0.17,
         operating_area_offset_from_table: float = 0.02,
@@ -60,9 +60,9 @@ class SpaceRAgent(AgentBase):
         noise_obs_ee_pos_std: float = 0.0005,
         noise_obs_puck_pos_std: float = 0.002,
         noise_act_std: float = 0.0005,
-        loss_of_tracking_prob_inc_per_step: float = 0.00002,
-        loss_of_tracking_min_steps: int = 5,
-        loss_of_tracking_max_steps: int = 15,
+        loss_of_tracking_prob_inc_per_step: float = 0.000005,
+        loss_of_tracking_min_steps: int = 2,
+        loss_of_tracking_max_steps: int = 5,
         **kwargs,
     ):
         ## Chain up the parent implementation
@@ -192,17 +192,9 @@ class SpaceRAgent(AgentBase):
 
         ## For evaluation, the agent is fully internal and loaded from a checkpoint.
         if self.evaluate:
-            try:
-                nice(69)
-            except Exception:
-                pass
-
-            # Patch DreamerV3
-            _apply_monkey_patch_dreamerv3()
-
-            self.load_model_path = (
-                load_model_path
-                if load_model_path is not None
+            self.model_path = (
+                model_path
+                if model_path is not None
                 else self.DEFAULT_INFERENCE_MODEL[self.task]
             )
 
@@ -220,7 +212,7 @@ class SpaceRAgent(AgentBase):
             # Load checkpoint
             checkpoint = embodied.Checkpoint()
             checkpoint.agent = self.agent
-            checkpoint.load(self.load_model_path, keys=["agent"])
+            checkpoint.load(self.model_path, keys=["agent"])
 
             # Setup agent driver
             policy = lambda *args: self.agent.policy(*args, mode="eval")
