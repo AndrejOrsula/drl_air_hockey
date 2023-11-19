@@ -29,10 +29,13 @@ from drl_air_hockey.utils.tournament_agent_strategies import (
 from drl_air_hockey.utils.train import train_parallel
 
 AGENT_SCHEME: int = 7
-CONFIG_PRESET: int = 5
+CONFIG_PRESET: int = 1
 
-SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 500
-MAX_N_MODELS: int = 16
+DELAYED_SELF_PLAY: bool = True
+SAVE_NEW_OPPONENT_EVERY_N_EPISODES: int = 1000
+MAX_N_MODELS: int = 25
+
+XLA_PYTHON_CLIENT_MEM_FRACTION: float = 0.9
 
 
 def main(argv=None):
@@ -200,40 +203,42 @@ def make_env(
     env._opponent_models = [
         BaselineAgent(env.env_info, agent_id=2),
     ]
-    for filename in os.listdir(DIR_MODELS):
-        model_path = os.path.join(DIR_MODELS, filename)
-        if not (
-            os.path.isfile(model_path)
-            and filename.startswith(f"scheme")
-            and filename.endswith(".ckpt")
-            and "_" in filename
-        ):
-            continue
+    if DELAYED_SELF_PLAY:
+        for filename in os.listdir(DIR_MODELS):
+            model_path = os.path.join(DIR_MODELS, filename)
+            if not (
+                os.path.isfile(model_path)
+                and filename.startswith(f"scheme")
+                and filename.endswith(".ckpt")
+                and "_" in filename
+            ):
+                continue
 
-        scheme = int(filename.split("_")[0][len("scheme") :])
+            scheme = int(filename.split("_")[0][len("scheme") :])
 
-        if "_strategy" in filename:
-            strategy = filename.split("_")[1][len("strategy") :]
-            strategy = strategy_from_str(strategy)
-            strategy_kwargs = strategy.get_env_kwargs()
-        else:
-            strategy_kwargs = {}
+            if "_strategy" in filename:
+                strategy = filename.split("_")[1][len("strategy") :]
+                strategy = strategy_from_str(strategy)
+                strategy_kwargs = strategy.get_env_kwargs()
+            else:
+                strategy_kwargs = {}
 
-        env._opponent_models.append(
-            SpaceRAgent(
-                env.env_info,
-                agent_id=2,
-                interpolation_order=interpolation_order,
-                train=False,
-                scheme=scheme,
-                load_model_path=model_path,
-                **strategy_kwargs,
+            env._opponent_models.append(
+                SpaceRAgent(
+                    env.env_info,
+                    agent_id=2,
+                    interpolation_order=interpolation_order,
+                    train=False,
+                    scheme=scheme,
+                    load_model_path=model_path,
+                    **strategy_kwargs,
+                )
             )
-        )
-    # Counter that determines when to save a new opponent model
-    env._save_opponent_model_timeout_counter = 0
-    # Counter that determines the name of the model
-    env._saved_opponent_model_counter = 0
+        # Counter that determines when to save a new opponent model
+        env._save_opponent_model_timeout_counter = 0
+        # Counter that determines the name of the model
+        env._saved_opponent_model_counter = 0
+
     # Get path to the models (inefficient hack - get from config)
     config = config_dreamerv3(train=False, preset=CONFIG_PRESET)
     config = embodied.Flags(config).parse(argv=[])
@@ -272,11 +277,9 @@ def _apply_monkey_patch_dreamerv3():
     def __monkey_patch__setup(self):
         __monkey_patch__setup_original(self)
         # Configuration for a "large" machine
-        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.925"
-        # # Configuration for a "medium" machine
-        # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.875"
-        # # Configuration for a "small" machine
-        # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(
+            XLA_PYTHON_CLIENT_MEM_FRACTION
+        )
 
     Agent._setup = __monkey_patch__setup
     ## ~MONKEY PATCH:  Reduce preallocated JAX memory
@@ -313,42 +316,43 @@ def _apply_monkey_patch_env_step():
 
     def new_reset(self, state=None):
         # Regularly add a new opponent from a copy of the current model
-        self._save_opponent_model_timeout_counter += 1
-        if (
-            self._save_opponent_model_timeout_counter
-            >= SAVE_NEW_OPPONENT_EVERY_N_EPISODES
-        ):
-            self._save_opponent_model_timeout_counter = 0
+        if DELAYED_SELF_PLAY:
+            self._save_opponent_model_timeout_counter += 1
+            if (
+                self._save_opponent_model_timeout_counter
+                >= SAVE_NEW_OPPONENT_EVERY_N_EPISODES
+            ):
+                self._save_opponent_model_timeout_counter = 0
 
-            # If too many opponent models, pop a random model (except the first one)
-            while len(self._opponent_models) >= MAX_N_MODELS:
-                self._opponent_models.pop(
-                    np.random.randint(1, len(self._opponent_models))
-                )
+                # If too many opponent models, pop a random model (except the first one)
+                while len(self._opponent_models) >= MAX_N_MODELS:
+                    self._opponent_models.pop(
+                        np.random.randint(1, len(self._opponent_models))
+                    )
 
-            self._saved_opponent_model_counter += 1
-            checkpoint_path = os.path.join(self._model_logdir, "checkpoint.ckpt")
-            if not os.path.exists(checkpoint_path):
-                raise RuntimeError(
-                    f"Could not find checkpoint file at {checkpoint_path}"
+                self._saved_opponent_model_counter += 1
+                checkpoint_path = os.path.join(self._model_logdir, "checkpoint.ckpt")
+                if not os.path.exists(checkpoint_path):
+                    raise RuntimeError(
+                        f"Could not find checkpoint file at {checkpoint_path}"
+                    )
+                save_model_path = os.path.join(
+                    DIR_MODELS,
+                    f"scheme{AGENT_SCHEME}_strategy{strategy_to_str(AGENT_STRATEGY)}_mk{self._saved_opponent_model_counter}.ckpt",
                 )
-            save_model_path = os.path.join(
-                DIR_MODELS,
-                f"scheme{AGENT_SCHEME}_strategy{strategy_to_str(AGENT_STRATEGY)}_mk{self._saved_opponent_model_counter}.ckpt",
-            )
-            if not os.path.exists(save_model_path):
-                shutil.copyfile(checkpoint_path, save_model_path)
-            self._opponent_models.append(
-                SpaceRAgent(
-                    self.env_info,
-                    agent_id=2,
-                    interpolation_order=INTERPOLATION_ORDER,
-                    train=False,
-                    scheme=AGENT_SCHEME,
-                    load_model_path=save_model_path,
-                    **AGENT_STRATEGY.get_env_kwargs(),
-                ),
-            )
+                if not os.path.exists(save_model_path):
+                    shutil.copyfile(checkpoint_path, save_model_path)
+                self._opponent_models.append(
+                    SpaceRAgent(
+                        self.env_info,
+                        agent_id=2,
+                        interpolation_order=INTERPOLATION_ORDER,
+                        train=False,
+                        scheme=AGENT_SCHEME,
+                        load_model_path=save_model_path,
+                        **AGENT_STRATEGY.get_env_kwargs(),
+                    ),
+                )
 
         # Randomly select a new opponent to train against
         self._agent_2 = np.random.choice(self._opponent_models)
