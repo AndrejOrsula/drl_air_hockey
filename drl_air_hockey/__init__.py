@@ -1,1 +1,1 @@
-from .agents import MultiStrategySpaceRAgent, SpaceRAgent
+from .agents import MultiStrategySpaceRAgent, SingleStrategySpaceRAgent, SpaceRAgent
