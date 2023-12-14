@@ -230,7 +230,7 @@ def make_env(
                     interpolation_order=interpolation_order,
                     train=False,
                     scheme=scheme,
-                    load_model_path=model_path,
+                    model_path=model_path,
                     **strategy_kwargs,
                 )
             )
@@ -349,7 +349,7 @@ def _apply_monkey_patch_env_step():
                         interpolation_order=INTERPOLATION_ORDER,
                         train=False,
                         scheme=AGENT_SCHEME,
-                        load_model_path=save_model_path,
+                        model_path=save_model_path,
                         **AGENT_STRATEGY.get_env_kwargs(),
                     ),
                 )
