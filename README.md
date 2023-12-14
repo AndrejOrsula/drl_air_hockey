@@ -6,7 +6,7 @@
 
 This is a participant repository for the [Robot Air Hockey Challenge 2023](https://air-hockey-challenge.robot-learning.net).
 
-https://github.com/AndrejOrsula/drl_air_hockey/assets/22929099/c145d8ad-1762-4b45-be67-2862b04d63f8
+https://github.com/AndrejOrsula/drl_air_hockey/assets/22929099/68b39c9c-2d18-4eae-99e4-58670fb29e2c
 
 ## Overview
 
@@ -57,7 +57,7 @@ scripts/eval_dreamerv3.py
 
 #### QuickTest
 
-As a quick test, you can try evaluating a pre-trained agent in a self-play mode by running [`.docker/run.bash`](.docker/run.bash) directly via [`curl`](https://curl.se) as shown below.
+As a quick test, you can try evaluating a pre-trained agent in a self-play mode by running [`.docker/run.bash`](.docker/run.bash) directly via [`curl`](https://curl.se) as shown below. Models of pre-trained agents are available [here](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E).
 
 ```bash
 curl -sSfL "https://raw.githubusercontent.com/AndrejOrsula/drl_air_hockey/main/.docker/run.bash" | DOCKER_RUN_OPTS="--rm" bash -s -- drl_air_hockey/scripts/eval_dreamerv3.py -r
