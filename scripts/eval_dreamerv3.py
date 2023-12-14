@@ -37,22 +37,31 @@ def main(argv=None):
 
     agent_config_1.update(get_args())
 
-    agent_config_1.update(
-        {
-            "model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_balanced.ckpt",
-            **BalancedAgentStrategy().get_env_kwargs(),
-        }
-    )
-    agent_config_2.update(
-        {
-            "model_path": "/src/drl_air_hockey/drl_air_hockey/agents/models/tournament_balanced.ckpt",
-            **BalancedAgentStrategy().get_env_kwargs(),
-        }
-    )
+    MODELS_DIR: str = "/src/drl_air_hockey/drl_air_hockey/agents/models"
+
+    # MODEL1 = None
+    MODEL1 = "tournament_balanced.ckpt"
+    if MODEL1 is not None:
+        agent_config_1.update(
+            {
+                "model_path": f"{MODELS_DIR}/{MODEL1}",
+                "model_preset": 1,
+            }
+        )
+
+    # MODEL2 = None
+    MODEL2 = "tournament_balanced.ckpt"
+    if MODEL2 is not None:
+        agent_config_2.update(
+            {
+                "model_path": f"{MODELS_DIR}/{MODEL2}",
+                "model_preset": 1,
+            }
+        )
 
     run_tournament(
-        build_agent_1=build_agent,
-        build_agent_2=build_agent,
+        build_agent_1=build_agent if MODEL1 is not None else None,
+        build_agent_2=build_agent if MODEL2 is not None else None,
         agent_2_kwargs=agent_config_2,
         **agent_config_1,
     )
