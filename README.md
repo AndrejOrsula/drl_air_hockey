@@ -12,11 +12,13 @@ https://github.com/AndrejOrsula/drl_air_hockey/assets/22929099/68b39c9c-2d18-4ea
 
 The implemented approach focuses on applying a model-based deep reinforcement learning algorithm [DreamerV3](https://danijar.com/project/dreamerv3) to acquire a policy capable of playing air hockey with continuous observations and actions.
 
-Further information about the approach is available [here (WIP)](TODO).
+- Additional details about the approach are presented in the report [here](https://www.ias.informatik.tu-darmstadt.de/uploads/Team/PuzeLiu/AirHockeyChallenge_SpaceR.pdf)
+- Models of pre-trained agents can be downloaded from [here](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E)
 
 ## Instructions
 
-### <a href="#-usage"><img src="https://www.svgrepo.com/show/354238/python.svg" width="16" height="16"></a> Usage
+<details open>
+<summary><h3><a href="#-usage"><img src="https://www.svgrepo.com/show/354238/python.svg" width="16" height="16"></a> Usage</h3></summary>
 
 #### Installation
 
@@ -47,7 +49,10 @@ Once you are satisfied with the training progress, you can evaluate the agent by
 scripts/eval_dreamerv3.py
 ```
 
-### <a href="#-docker"><img src="https://www.svgrepo.com/show/448221/docker.svg" width="16" height="16"></a> Docker
+</details>
+
+<details>
+<summary><h3><a href="#-docker"><img src="https://www.svgrepo.com/show/448221/docker.svg" width="16" height="16"></a> Docker</h3></summary>
 
 > To install [Docker](https://docs.docker.com/get-docker) on your system, you can run [`.docker/host/install_docker.bash`](.docker/host/install_docker.bash) to configure Docker with NVIDIA GPU support.
 >
@@ -57,7 +62,7 @@ scripts/eval_dreamerv3.py
 
 #### QuickTest
 
-As a quick test, you can try evaluating a pre-trained agent in a self-play mode by running [`.docker/run.bash`](.docker/run.bash) directly via [`curl`](https://curl.se) as shown below. Models of pre-trained agents are available [here](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E).
+As a quick test, you can try evaluating a pre-trained agent in a self-play mode by running [`.docker/run.bash`](.docker/run.bash) directly via [`curl`](https://curl.se) as shown below. Note, that only the pre-built Docker image already contains [models of pre-trained agents](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E).
 
 ```bash
 curl -sSfL "https://raw.githubusercontent.com/AndrejOrsula/drl_air_hockey/main/.docker/run.bash" | DOCKER_RUN_OPTS="--rm" bash -s -- drl_air_hockey/scripts/eval_dreamerv3.py -r
@@ -100,3 +105,5 @@ To join a running Docker container from another terminal, you can use [`.docker/
 ```bash
 .docker/join.bash ${CMD:-bash}
 ```
+
+</details>
