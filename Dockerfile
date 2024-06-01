@@ -7,7 +7,7 @@ SHELL ["/bin/bash", "-c"]
 
 ### Install dependencies
 RUN python3 -m pip install --no-cache-dir setuptools==65.5.0 pip==21.3.1 && \
-    python3 -m pip install --no-cache-dir "dreamerv3 @ git+https://github.com/AndrejOrsula/dreamerv3.git" && \
+    python3 -m pip install --no-cache-dir "dreamerv3 @ git+https://github.com/AndrejOrsula/dreamerv3.git@d4f47fcb18f52777314f2735389cd1f449513c9a" && \
     wget -q https://raw.githubusercontent.com/AndrejOrsula/dreamerv3/main/dreamerv3/configs.yaml -O "$(pip show dreamerv3 | grep Location: | cut -d' ' -f2)/dreamerv3/configs.yaml"
 
 ### Enable GUI

@@ -12,13 +12,20 @@ https://github.com/AndrejOrsula/drl_air_hockey/assets/22929099/68b39c9c-2d18-4ea
 
 The implemented approach focuses on applying a model-based deep reinforcement learning algorithm [DreamerV3](https://danijar.com/project/dreamerv3) to acquire a policy capable of playing air hockey with continuous observations and actions.
 
-- Additional details about the approach are presented in the report [here](https://www.ias.informatik.tu-darmstadt.de/uploads/Team/PuzeLiu/AirHockeyChallenge_SpaceR.pdf)
-- Models of pre-trained agents can be downloaded from [here](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E)
+- Additional details about the approach are presented in the report [here](https://www.ias.informatik.tu-darmstadt.de/uploads/Team/PuzeLiu/AirHockeyChallenge_SpaceR.pdf).
+- Models of pre-trained agents can be downloaded from [here](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E).
 
 ## Instructions
 
-<details open>
-<summary><h3><a href="#-usage"><img src="https://www.svgrepo.com/show/354238/python.svg" width="16" height="16"></a> Usage</h3></summary>
+### <img src="https://www.svgrepo.com/show/269868/lab.svg" width="16" height="16"> Quick Test
+
+As a quick test, you can try evaluating a pre-trained agent in a self-play mode by running [`.docker/run.bash`](.docker/run.bash) directly via [`curl`](https://curl.se) as shown below.
+
+```bash
+curl -sSfL "https://raw.githubusercontent.com/AndrejOrsula/drl_air_hockey/main/.docker/run.bash" | DOCKER_RUN_OPTS="--rm" bash -s -- drl_air_hockey/scripts/eval_dreamerv3.py -r
+```
+
+### <img src="https://www.svgrepo.com/show/354238/python.svg" width="16" height="16"> Python
 
 #### Installation
 
@@ -28,6 +35,9 @@ Install [`air_hockey_challenge`](https://github.com/AndrejOrsula/air_hockey_chal
 pip3 install git+https://github.com/AndrejOrsula/air_hockey_challenge.git
 pip3 install git+https://github.com/AndrejOrsula/drl_air_hockey.git
 ```
+
+> \[!WARNING\]
+> Not all dependencies have their versions pinned, e.g. transitive dependencies of `dreamerv3`. Therefore, the functionality of this repository may be affected in future builds. Consider using the pre-built Docker image for a stable environment.
 
 #### Training and Evaluation
 
@@ -49,8 +59,6 @@ Once you are satisfied with the training progress, you can evaluate the agent by
 scripts/eval_dreamerv3.py
 ```
 
-</details>
-
 <details>
 <summary><h3><a href="#-docker"><img src="https://www.svgrepo.com/show/448221/docker.svg" width="16" height="16"></a> Docker</h3></summary>
 
@@ -60,17 +68,9 @@ scripts/eval_dreamerv3.py
 > .docker/host/install_docker.bash
 > ```
 
-#### QuickTest
-
-As a quick test, you can try evaluating a pre-trained agent in a self-play mode by running [`.docker/run.bash`](.docker/run.bash) directly via [`curl`](https://curl.se) as shown below. Note, that only the pre-built Docker image already contains [models of pre-trained agents](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E).
-
-```bash
-curl -sSfL "https://raw.githubusercontent.com/AndrejOrsula/drl_air_hockey/main/.docker/run.bash" | DOCKER_RUN_OPTS="--rm" bash -s -- drl_air_hockey/scripts/eval_dreamerv3.py -r
-```
-
 #### Build Image
 
-To build a new Docker image from [`Dockerfile`](Dockerfile), you can run [`.docker/build.bash`](.docker/build.bash) as shown below.
+To build a new Docker image from [`Dockerfile`](Dockerfile), you can run [`.docker/build.bash`](.docker/build.bash) as shown below. Note that only the pre-built Docker image already contains [models of pre-trained agents](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E).
 
 ```bash
 .docker/build.bash ${TAG:-latest} ${BUILD_ARGS}
@@ -107,3 +107,14 @@ To join a running Docker container from another terminal, you can use [`.docker/
 ```
 
 </details>
+
+## Citation
+
+```bibtex
+@article{orsula2023learning,
+  title   = {{Learning to Play Air Hockey with Model-Based Deep Reinforcement Learning}},
+  author  = {Andrej Orsula},
+  journal = {NeurIPS 2023 --- The Robot Air Hockey Challenge},
+  year    = {2023},
+}
+```
