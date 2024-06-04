@@ -12,7 +12,7 @@ https://github.com/AndrejOrsula/drl_air_hockey/assets/22929099/68b39c9c-2d18-4ea
 
 The implemented approach focuses on applying a model-based deep reinforcement learning algorithm [DreamerV3](https://danijar.com/project/dreamerv3) to acquire a policy capable of playing air hockey with continuous observations and actions.
 
-- Additional details about the approach are presented in the report [here](https://www.ias.informatik.tu-darmstadt.de/uploads/Team/PuzeLiu/AirHockeyChallenge_SpaceR.pdf).
+- Additional details about the approach are presented in the report [here](https://arxiv.org/pdf/2406.00518).
 - Models of pre-trained agents can be downloaded from [here](https://drive.google.com/drive/folders/1bfj0VCm7wbGKBh5i_-Oso3XCcJbNZ_8E).
 
 ## Instructions
