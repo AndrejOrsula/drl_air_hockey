@@ -18,14 +18,14 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       ## Run pre-commit and try to apply fixes
       - name: Run pre-commit
-        uses: pre-commit/action@v3.0.0
+        uses: pre-commit/action@v3.0.1
       - name: Apply fixes from pre-commit
-        uses: pre-commit-ci/lite-action@v1.0.1
+        uses: pre-commit-ci/lite-action@v1.1.0
         if: always()

@@ -1,0 +1,263 @@
+agent:
+  ac_grads: false
+  advnorm: { impl: none, limit: 0.00000001, rate: 0.01 }
+  conhead:
+    {
+      act: silu,
+      layers: 1,
+      norm: rms,
+      output: binary,
+      outscale: 1.0,
+      units: 512,
+      winit: trunc_normal_in,
+    }
+  contdisc: true
+  dec:
+    simple:
+      act: silu
+      bspace: 8
+      depth: 32
+      kernel: 5
+      layers: 3
+      mults: [2, 3, 4, 4]
+      norm: rms
+      outer: false
+      outscale: 1.0
+      strided: false
+      units: 512
+      winit: trunc_normal_in
+    typ: simple
+  dyn:
+    rssm:
+      {
+        absolute: false,
+        act: silu,
+        blocks: 8,
+        classes: 32,
+        deter: 4096,
+        dynlayers: 1,
+        free_nats: 1.0,
+        hidden: 512,
+        imglayers: 2,
+        norm: rms,
+        obslayers: 1,
+        outscale: 1.0,
+        stoch: 32,
+        unimix: 0.01,
+        winit: trunc_normal_in,
+      }
+    typ: rssm
+  enc:
+    simple:
+      act: silu
+      depth: 32
+      kernel: 5
+      layers: 3
+      mults: [2, 3, 4, 4]
+      norm: rms
+      outer: false
+      strided: false
+      symlog: true
+      units: 512
+      winit: trunc_normal_in
+    typ: simple
+  horizon: 333
+  imag_last: 0
+  imag_length: 15
+  imag_loss: { actent: 0.0003, lam: 0.95, slowreg: 1.0, slowtar: false }
+  loss_scales:
+    {
+      con: 1.0,
+      dyn: 1.0,
+      policy: 1.0,
+      rec: 1.0,
+      rep: 0.1,
+      repval: 0.3,
+      rew: 1.0,
+      value: 1.0,
+    }
+  opt:
+    {
+      agc: 0.3,
+      anneal: 0,
+      beta1: 0.9,
+      beta2: 0.999,
+      eps: 0.00000000000000000001,
+      lr: 0.00004,
+      momentum: true,
+      schedule: const,
+      warmup: 1000,
+      wd: 0.0,
+    }
+  policy:
+    {
+      act: silu,
+      layers: 3,
+      maxstd: 1.0,
+      minstd: 0.1,
+      norm: rms,
+      outscale: 0.01,
+      unimix: 0.01,
+      units: 512,
+      winit: trunc_normal_in,
+    }
+  policy_dist_cont: bounded_normal
+  policy_dist_disc: categorical
+  repl_loss: { lam: 0.95, slowreg: 1.0, slowtar: false }
+  report: true
+  report_gradnorms: false
+  repval_grad: true
+  repval_loss: true
+  retnorm:
+    {
+      debias: false,
+      impl: perc,
+      limit: 1.0,
+      perchi: 95.0,
+      perclo: 5.0,
+      rate: 0.01,
+    }
+  reward_grad: true
+  rewhead:
+    {
+      act: silu,
+      bins: 255,
+      layers: 1,
+      norm: rms,
+      output: symexp_twohot,
+      outscale: 0.0,
+      units: 512,
+      winit: trunc_normal_in,
+    }
+  slowvalue: { every: 1, rate: 0.02 }
+  valnorm: { impl: none, limit: 0.00000001, rate: 0.01 }
+  value:
+    {
+      act: silu,
+      bins: 255,
+      layers: 3,
+      norm: rms,
+      output: symexp_twohot,
+      outscale: 0.0,
+      units: 512,
+      winit: trunc_normal_in,
+    }
+batch_length: 64
+batch_size: 16
+clock_addr: ""
+clock_port: ""
+consec_report: 1
+consec_train: 1
+env:
+  atari:
+    actions: all
+    aggregate: max
+    autostart: false
+    clip_reward: false
+    gray: true
+    lives: unused
+    noops: 30
+    pooling: 2
+    repeat: 4
+    resize: pillow
+    size: [96, 96]
+    sticky: true
+  atari100k:
+    actions: needed
+    autostart: false
+    clip_reward: false
+    gray: false
+    lives: unused
+    noops: 30
+    repeat: 4
+    resize: pillow
+    size: [64, 64]
+    sticky: false
+  crafter:
+    logs: false
+    size: [64, 64]
+  dmc:
+    camera: -1
+    image: true
+    proprio: true
+    repeat: 1
+    size: [64, 64]
+  dmlab:
+    episodic: true
+    repeat: 4
+    size: [64, 64]
+    use_seed: true
+  loconav:
+    camera: -1
+    repeat: 1
+    size: [64, 64]
+  minecraft:
+    break_speed: 100.0
+    length: 36000
+    logs: false
+    size: [64, 64]
+  procgen:
+    resize: pillow
+    size: [96, 96]
+errfile: false
+ipv6: false
+jax:
+  compute_dtype: bfloat16
+  coordinator_address: ""
+  debug: false
+  enable_policy: true
+  expect_devices: 0
+  jit: true
+  mock_devices: 0
+  platform: cuda
+  policy_devices: [0]
+  prealloc: false
+  train_devices: [0]
+logdir: /tmp/drl_air_hockey/drl_air_hockey/dreamer/logs/tournament/dreamer/20250907_200438
+logger:
+  filter: score|length|fps|ratio|train/loss/|train/rand/
+  fps: 10
+  outputs: [tensorboard]
+  timer: false
+  user: ""
+method: name
+random_agent: false
+replay:
+  chunksize: 1024
+  fracs: { priority: 0.5, recency: 0.5, uniform: 0.0 }
+  online: true
+  prio: { exponent: 0.8, initial: inf, maxfrac: 0.5, zero_on_sample: true }
+  priosignal: model
+  recexp: 1.0
+  size: 5000000.0
+replay_context: 1
+replica: 0
+replicas: 1
+report_length: 32
+run:
+  actor_addr: localhost:{auto}
+  actor_batch: -1
+  actor_threads: 1
+  agent_process: false
+  debug: false
+  duration: 0
+  envs: 16
+  episode_timeout: 180
+  eval_envs: 2
+  eval_eps: 1
+  from_checkpoint: ""
+  log_every: 120
+  logger_addr: localhost:{auto}
+  remote_envs: false
+  remote_replay: false
+  replay_addr: localhost:{auto}
+  report_batches: 1
+  report_every: 300
+  save_every: 1200
+  steps: 1000000000.0
+  train_ratio: 128.0
+  usage:
+    { gc: false, gputil: false, malloc: false, nvsmi: false, psutil: false }
+script: train
+seed: 0
+task: tournament

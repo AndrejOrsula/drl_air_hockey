@@ -1,21 +1,20 @@
 [project]
 name = "drl_air_hockey"
 version = "0.1.0"
-description = "Source code for participating in the 2023 Air Hockey Challenge"
+description = "Source code for participating in the 2025 Air Hockey Challenge"
 authors = [{ name = "Andrej Orsula", email = "andrej.orsula@uni.lu" }]
 classifiers = [
   "Programming Language :: Python",
   "License :: OSI Approved :: MIT License",
 ]
-requires-python = ">=3.7"
-dependencies = [
-  "AirHockeyChallenge==1.0.0",
-  "dreamerv3 @ git+https://github.com/AndrejOrsula/dreamerv3.git@d4f47fcb18f52777314f2735389cd1f449513c9a",
-  "zmq",
-]
+requires-python = ">=3.11"
+dependencies = ["zmq", "argcomplete", "tensorflow", "tf_keras"]
 
 [tool.setuptools]
 py-modules = ["drl_air_hockey"]
 
 [project.optional-dependencies]
 test = ["pytest"]
+
+[project.scripts]
+drl_air_hockey = "drl_air_hockey.dreamer.__main__:main"

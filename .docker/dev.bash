@@ -1,13 +1,53 @@
 #!/usr/bin/env bash
+### Run a Docker container with additional development volumes mounted
+### Usage: dev.bash [-v HOST_DIR:DOCKER_DIR:OPTIONS] [-e ENV=VALUE] [TAG] [CMD]
+set -e
 
-## Determine the host directory to be mounted as a development volume
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
 REPOSITORY_DIR="$(dirname "${SCRIPT_DIR}")"
-DEV_VOLUME_HOST_DIR="${DEV_VOLUME_HOST_DIR:-"${REPOSITORY_DIR}"}"
+WS_DIR="$(dirname "${REPOSITORY_DIR}")"
+export WITH_DEV_VOLUME="${WITH_DEV_VOLUME:-true}"
 
-## Determine the docker directory where the development volume will be mounted
-DEV_VOLUME_DOCKER_DIR="${DEV_VOLUME_DOCKER_DIR:-"/src/drl_air_hockey"}"
+## Config
+# Development volumes to mount inside the container
+DOCKER_DEV_VOLUMES=(
+    "${WS_DIR}/air_hockey_challenge:/src/2025-challenge:rw"
+    "${WS_DIR}/dreamerv3:/src/dreamerv3:rw"
+)
+# Development environment variables to set inside the container
+DOCKER_DEV_ENVIRON=(
+    LOG_LEVEL="${LOG_LEVEL:-debug}"
+    DEBUG_VIS="${DEBUG_VIS:-true}"
+    HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
+    RICH_TRACEBACK="${RICH_TRACEBACK:-true}"
+    # RICH_TRACEBACK_LOCALS="${RICH_TRACEBACK_LOCALS:-true}"
+)
 
-## Run the docker container with the development volume mounted
-echo -e "\033[2;37mDevelopment volume: ${DEV_VOLUME_HOST_DIR} -> ${DEV_VOLUME_DOCKER_DIR}\033[0m" | xargs
-exec "${SCRIPT_DIR}/run.bash" -v "${DEV_VOLUME_HOST_DIR}:${DEV_VOLUME_DOCKER_DIR}" "${@}"
+## Verify that all development volumes exist
+for volume in "${DOCKER_DEV_VOLUMES[@]}"; do
+    host_dir="${volume%%:*}"
+    target_dir="${volume#*:}"
+    target_dir="${target_dir%%:*}"
+    if [[ ! -d "${host_dir}" ]]; then
+        echo >&2 -e "\033[1;31m[ERROR] The source directory '${host_dir}' to be mounted as a volume at '${target_dir}' does not exist.\033[0m"
+        exit 1
+    fi
+done
+
+## Run the container with development volumes
+DEV_ARGS=()
+for vol in "${DOCKER_DEV_VOLUMES[@]}"; do
+    DEV_ARGS+=("-v" "${vol}")
+done
+for env_var in "${DOCKER_DEV_ENVIRON[@]}"; do
+    DEV_ARGS+=("-e" "${env_var}")
+done
+DOCKER_DEV_CMD=(
+    "${SCRIPT_DIR}/run.bash"
+    "${DEV_ARGS[@]}"
+    "$@"
+)
+printf "\033[1;90m[TRACE] "
+printf "%q " "${DOCKER_DEV_CMD[@]}"
+printf "\033[0m\n"
+exec "${DOCKER_DEV_CMD[@]}"

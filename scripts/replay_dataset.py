@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 
+import argparse
+
 import mujoco
 import numpy as np
 from air_hockey_challenge.framework import AirHockeyChallengeWrapper
 
 
 def main(argv=None):
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--env", default="tournament")
+    argparser.add_argument(
+        "dataset",
+        default="/src/drl_air_hockey/datasets/dataset_XYZ/Home_vs_Away/Game_0/Home/dataset.pkl",
+    )
+    args = argparser.parse_args(argv)
+
     replay_dataset(
-        "tournament",
-        "/src/drl_air_hockey/datasets/dataset_XYZ/Home_vs_Away/Game_0/Home/dataset.pkl",
+        args.env,
+        args.dataset,
     )
 
 
@@ -40,7 +50,10 @@ def replay_dataset(env_name, dataset_path):
 
         if env_name == "7dof-hit":
             mdp.base_env._data.qpos[mujoco_idx] = np.concatenate(
-                [step[3][pos_idx], mdp.base_env._opponent_agent(None)[0]]
+                [
+                    step[3][pos_idx],
+                    mdp.base_env._opponent_agent(None)[0],
+                ]
             )
         else:
             mdp.base_env._data.qpos[mujoco_idx] = step[3][pos_idx]

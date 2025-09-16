@@ -1,32 +1,32 @@
-ARG PARENT_IMAGE=andrejorsula/air_hockey_challenge
+ARG PARENT_IMAGE=air_hockey_challenge
 ARG PARENT_IMAGE_TAG=latest
 FROM ${PARENT_IMAGE}:${PARENT_IMAGE_TAG}
 
 ### Use bash as the default shell
 SHELL ["/bin/bash", "-c"]
 
-### Install dependencies
-RUN python3 -m pip install --no-cache-dir setuptools==65.5.0 pip==21.3.1 && \
-    python3 -m pip install --no-cache-dir "dreamerv3 @ git+https://github.com/AndrejOrsula/dreamerv3.git@d4f47fcb18f52777314f2735389cd1f449513c9a" && \
-    wget -q https://raw.githubusercontent.com/AndrejOrsula/dreamerv3/main/dreamerv3/configs.yaml -O "$(pip show dreamerv3 | grep Location: | cut -d' ' -f2)/dreamerv3/configs.yaml"
-
-### Enable GUI
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
-    libegl1-mesa-dev \
-    libgl1-mesa-dev \
-    libgles2-mesa-dev \
-    libglvnd-dev \
-    libsm6 \
-    libxext6 && \
-    rm -rf /var/lib/apt/lists/*
+ARG DEV=true
+ARG DREAMER_DEV=true
+ARG DREAMER_PATH="/src/dreamerv3"
+ARG DREAMER_REMOTE="https://github.com/AndrejOrsula/dreamerv3.git"
+ARG DREAMER_BRANCH="main"
+ARG DREAMER_COMMIT_SHA="4049794d4135e41c691f18da38a9af7541b01553" # 2025-07-16
+RUN if [[ "${DEV,,}" = true && "${DREAMER_DEV,,}" = true ]]; then \
+    git clone "${DREAMER_REMOTE}" "${DREAMER_PATH}" --branch "${DREAMER_BRANCH}" && \
+    git -C "${DREAMER_PATH}" reset --hard "${DREAMER_COMMIT_SHA}" && \
+    python3 -m pip install --no-input --no-cache-dir --editable "${DREAMER_PATH}" ; \
+    fi
 
 ### Copy the source and install in editable mode
 COPY . "/src/drl_air_hockey"
-RUN python3 -m pip install --no-cache-dir -e "/src/drl_air_hockey"
+RUN python3 -m pip install --no-input --no-cache-dir --editable "/src/drl_air_hockey"
 
 ### Set the working directory
 WORKDIR "/src"
 
+## Configure argcomplete
+RUN echo "source /etc/bash_completion.d/drl_air_hockey" >> "/etc/bash.bashrc" && \
+    register-python-argcomplete "drl_air_hockey" > "/etc/bash_completion.d/drl_air_hockey"
+
 ### Define the default command
-CMD ["python3", "-O", "/src/2023-challenge/run.py"]
+CMD ["python3", "-O", "/src/2025-challenge/run.py"]

@@ -12,7 +12,6 @@
 .env
 .venv
 env.bak/
-env/
 ENV/
 venv.bak/
 venv/
@@ -32,3 +31,6 @@ venv/
 
 ## Datasets
 **/datasets/
+
+## Docker History
+.docker/.history/

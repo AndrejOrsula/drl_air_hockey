@@ -76,8 +76,8 @@ def main(
 
     # Create download client
     server = f"https://obs.{swr_server}.myhuaweicloud.eu"
-    bucketName = "air-hockey-dataset-eu"
-    objectKey = f"data-{team_name}.zip"
+    bucketName = f"airhockey-dataset"
+    objectKey = f"{team_name}.zip"
     # objectKey = f"friendly_game/data-{team_name}.zip"
     obsClient = obs.ObsClient(access_key_id=AK, secret_access_key=SK, server=server)
 
@@ -90,6 +90,10 @@ def main(
         if last_modified in old_dataset:
             print("There is no new Dataset available.")
             return
+    if last_modified is None:
+        from datetime import datetime
+
+        last_modified = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 
     download_path = os.path.join(download_dir, f"dataset-{last_modified}.zip")
     resp = obsClient.getObject(

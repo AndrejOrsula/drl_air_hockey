@@ -8,10 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" &>/dev/null &
 source "${SCRIPT_DIR}/_parse_team_info.bash"
 
 ## Determine the image name
-IMAGE_NAME="swr.${swr_server}.myhuaweicloud.eu/his_air_hockey_competition_eu/solution-${team_name}"
+IMAGE_NAME="swr.${swr_server}.myhuaweicloud.eu/tud_huawei_org/solution-${team_name}"
 
 ## Build the submission image
-REPOSITORY_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
+REPOSITORY_DIR="$(dirname "${SCRIPT_DIR}")"
 DOT_DOCKER_DIR="${REPOSITORY_DIR}/.docker"
 # Build submission image
 "${DOT_DOCKER_DIR}/build.bash" --tag "${IMAGE_NAME}"
