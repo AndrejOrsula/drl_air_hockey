@@ -2,22 +2,35 @@ import numpy as np
 
 
 class TournamentReward:
-    MAX_TIME_UNTIL_PENALTY_S: float = 7.0
+    MAX_TIME_UNTIL_PENALTY_S: float = 15.0
 
     def __init__(
         self,
         reward_agent_score_goal: float = 1.0,
         reward_agent_receive_goal: float = -1.0,
-        reward_opponent_faul: float = 0.0,
-        reward_agent_faul: float = -1.0 / 3.0,
-        reward_agent_cause_puck_stuck: float = 0.0,
+        reward_opponent_fault: float = 0.0,
+        reward_agent_fault: float = -1.0 / 3.0,
+        reward_stalemate: float = 0.0,
+        goal_reward_decay_factor: float = 0.0,
+        goal_penalty_scaling_factor: float = 1.0,
+        stuck_puck_pos_threshold: float = 0.2,
+        stuck_puck_vel_threshold: float = 0.025,
+        penalty_fault_threshold_ratio: float = 0.8,
     ):
         self._reward_agent_score_goal = reward_agent_score_goal
         self._reward_agent_receive_goal = reward_agent_receive_goal
-        self._reward_opponent_faul = reward_opponent_faul
-        self._reward_agent_faul = reward_agent_faul
-        self._reward_agent_cause_puck_stuck = reward_agent_cause_puck_stuck
-        self._penalty_threshold = 0.8 * self.MAX_TIME_UNTIL_PENALTY_S
+        self._reward_opponent_fault = reward_opponent_fault
+        self._reward_agent_fault = reward_agent_fault
+        self._reward_stalemate = reward_stalemate
+
+        self._goal_reward_decay_factor = goal_reward_decay_factor
+        self._goal_penalty_scaling_factor = goal_penalty_scaling_factor
+
+        self._stuck_puck_pos_threshold = stuck_puck_pos_threshold
+        self._stuck_puck_vel_threshold = stuck_puck_vel_threshold
+        self._penalty_threshold = (
+            penalty_fault_threshold_ratio * self.MAX_TIME_UNTIL_PENALTY_S
+        )
 
         self.penalty_timer = 0.0
         self.penalty_side = None
@@ -27,64 +40,57 @@ class TournamentReward:
         r = 0.0
         puck_pos, puck_vel = mdp.get_puck(next_state)
 
-        ## Penalty checking (timer update)
-        # Determine which side the puck is on on the first step
+        puck_pos_x_sign = np.sign(puck_pos[0])
         if self.penalty_side is None:
-            self.penalty_side = np.sign(puck_pos[0])
+            self.penalty_side = puck_pos_x_sign if puck_pos_x_sign != 0 else 1
 
-        if np.sign(puck_pos[0]) == self.penalty_side:
-            # If the puck is on the same side as the penalty side, increment the penalty timer
-            self.penalty_timer += mdp.env_info["dt"]
-        else:
-            # Otherwise, reset the penalty timer and change the penalty side
-            self.penalty_side *= -1
-            self.penalty_timer = 0.0
-        ## ~ Penalty checking (timer update)
+        if puck_pos_x_sign != 0:
+            if puck_pos_x_sign == self.penalty_side:
+                self.penalty_timer += mdp.env_info["dt"]
+            else:
+                self.penalty_side *= -1
+                self.penalty_timer = 0.0
 
         if absorbing or mdp._data.time < mdp.env_info["dt"] * 2:
-            ## Penalty checking
-            # If the penalty timer is greater than X seconds and the puck is not in the middle, give reward accordingly
-            if (
+            table_length = mdp.env_info["table"]["length"]
+            is_goal = (
+                np.abs(puck_pos[1]) - mdp.env_info["table"]["goal_width"] / 2
+            ) <= 0
+            if is_goal and puck_pos[0] > table_length / 2:
+                reward_range = [
+                    self._reward_agent_score_goal,
+                    self._reward_agent_score_goal * self._goal_reward_decay_factor,
+                ]
+                r = np.interp(self.penalty_timer, self.time_penalty_range, reward_range)
+
+            elif is_goal and puck_pos[0] < -table_length / 2:
+                extra_penalty_range = [
+                    0.0,
+                    self._reward_agent_receive_goal * self._goal_penalty_scaling_factor,
+                ]
+                extra_penalty = np.interp(
+                    self.penalty_timer, self.time_penalty_range, extra_penalty_range
+                )
+                r = self._reward_agent_receive_goal + extra_penalty
+
+            elif (
                 self.penalty_timer > self._penalty_threshold
-                and np.abs(puck_pos[0]) >= 0.15
+                and np.abs(puck_pos[0]) >= self._stuck_puck_pos_threshold
             ):
                 if self.penalty_side == -1:
-                    r = self._reward_agent_faul
+                    r = self._reward_agent_fault
                 elif self.penalty_side == 1:
-                    r = self._reward_opponent_faul
-                else:
-                    raise ValueError(
-                        f"Penalty side should be either -1 or 1, but got {self.penalty_side}"
-                    )
-            ## ~ Penalty checking
+                    r = self._reward_opponent_fault
 
-            ## Puck stuck in the middle
-            if np.abs(puck_pos[0]) < 0.15 and np.abs(puck_vel[0]) < 0.025:
-                r = self._reward_agent_cause_puck_stuck
-            ## ~ Puck stuck in the middle
+            elif (
+                np.abs(puck_pos[0]) < self._stuck_puck_pos_threshold
+                and np.abs(puck_vel[0]) < self._stuck_puck_vel_threshold
+            ):
+                r = self._reward_stalemate
 
-            ## Goal checking
-            if (np.abs(puck_pos[1]) - mdp.env_info["table"]["goal_width"] / 2) <= 0:
-                if puck_pos[0] > mdp.env_info["table"]["length"] / 2:
-                    reward_range = [
-                        self._reward_agent_score_goal,
-                        self._reward_agent_score_goal * 0.25,
-                    ]  # At max time, reward is 25% of original
-                    r = np.interp(
-                        self.penalty_timer, self.time_penalty_range, reward_range
-                    )
-                elif puck_pos[0] < -mdp.env_info["table"]["length"] / 2:
-                    extra_penalty_range = [
-                        0.0,
-                        self._reward_agent_receive_goal,
-                    ]  # At max time, penalty is doubled
-                    extra_penalty = np.interp(
-                        self.penalty_timer, self.time_penalty_range, extra_penalty_range
-                    )
-                    r = self._reward_agent_receive_goal + extra_penalty
-            ## ~ Goal checking
+            else:
+                r = self._reward_stalemate
 
-            # Reset the penalty timer and side (it is the end of episode)
             self.penalty_timer = 0.0
             self.penalty_side = None
 

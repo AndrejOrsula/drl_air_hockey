@@ -1,13 +1,13 @@
 ### Training ###
 run:
   steps: 1000000000
-  train_ratio: 256.0
+  train_ratio: 80.0
   envs: 4
   eval_envs: 0
 replay:
-  size: 2500000
+  size: 2000000
   online: True
-  fracs: { uniform: 0.0, priority: 0.5, recency: 0.5 }
+  fracs: { uniform: 0.2, priority: 0.6, recency: 0.2 }
   chunksize: 1024
   save: True
 jax:
@@ -27,8 +27,8 @@ logger:
   filter: "score|length|fps|ratio|train/loss/|train/rand/"
   timer: False
   fps: 10
-run.log_every: 120
-run.report_every: 300
+run.log_every: 300
+run.report_every: 600
 run.save_every: 1200
 run.usage:
   { psutil: False, nvsmi: False, gputil: False, malloc: False, gc: False }
@@ -36,7 +36,7 @@ run.debug: False
 jax.debug: False
 
 ### Model ###
-##   Debug
+## Debug
 # batch_size: 8
 # batch_length: 10
 # report_length: 5
@@ -51,22 +51,26 @@ jax.debug: False
 #   .*\.hidden: 3
 #   .*\.blocks: 4
 #   .*\.depth: 2
-##   1M
+## 1M
 # .*\.rssm: { deter: 512, hidden: 64, classes: 4 }
 # .*\.depth: 4
 # .*\.units: 64
-##  12M
+## 12M
 # .*\.rssm: { deter: 2048, hidden: 256, classes: 16 }
 # .*\.depth: 16
 # .*\.units: 256
-##  25M
+## 25M
 # .*\.rssm: { deter: 3072, hidden: 384, classes: 24 }
 # .*\.depth: 24
 # .*\.units: 384
-##  50M
-.*\.rssm: { deter: 4096, hidden: 512, classes: 32 }
-.*\.depth: 32
-.*\.units: 512
+## 50M
+# .*\.rssm: { deter: 4096, hidden: 512, classes: 32 }
+# .*\.depth: 32
+# .*\.units: 512
+## 75M
+.*\.rssm: { deter: 5120, hidden: 640, classes: 40 }
+.*\.depth: 40
+.*\.units: 640
 ## 100M
 # .*\.rssm: { deter: 6144, hidden: 768, classes: 48 }
 # .*\.depth: 48

@@ -8,7 +8,7 @@ agent:
       norm: rms,
       output: binary,
       outscale: 1.0,
-      units: 512,
+      units: 640,
       winit: trunc_normal_in,
     }
   contdisc: true
@@ -16,7 +16,7 @@ agent:
     simple:
       act: silu
       bspace: 8
-      depth: 32
+      depth: 40
       kernel: 5
       layers: 3
       mults: [2, 3, 4, 4]
@@ -24,7 +24,7 @@ agent:
       outer: false
       outscale: 1.0
       strided: false
-      units: 512
+      units: 640
       winit: trunc_normal_in
     typ: simple
   dyn:
@@ -33,11 +33,11 @@ agent:
         absolute: false,
         act: silu,
         blocks: 8,
-        classes: 32,
-        deter: 4096,
+        classes: 40,
+        deter: 5120,
         dynlayers: 1,
         free_nats: 1.0,
-        hidden: 512,
+        hidden: 640,
         imglayers: 2,
         norm: rms,
         obslayers: 1,
@@ -50,7 +50,7 @@ agent:
   enc:
     simple:
       act: silu
-      depth: 32
+      depth: 40
       kernel: 5
       layers: 3
       mults: [2, 3, 4, 4]
@@ -58,7 +58,7 @@ agent:
       outer: false
       strided: false
       symlog: true
-      units: 512
+      units: 640
       winit: trunc_normal_in
     typ: simple
   horizon: 333
@@ -98,7 +98,7 @@ agent:
       norm: rms,
       outscale: 0.01,
       unimix: 0.01,
-      units: 512,
+      units: 640,
       winit: trunc_normal_in,
     }
   policy_dist_cont: bounded_normal
@@ -126,7 +126,7 @@ agent:
       norm: rms,
       output: symexp_twohot,
       outscale: 0.0,
-      units: 512,
+      units: 640,
       winit: trunc_normal_in,
     }
   slowvalue: { every: 1, rate: 0.02 }
@@ -139,7 +139,7 @@ agent:
       norm: rms,
       output: symexp_twohot,
       outscale: 0.0,
-      units: 512,
+      units: 640,
       winit: trunc_normal_in,
     }
 batch_length: 64
@@ -213,7 +213,7 @@ jax:
   policy_devices: [0]
   prealloc: false
   train_devices: [0]
-logdir: /tmp/drl_air_hockey/drl_air_hockey/dreamer/logs/tournament/dreamer/20250907_200438
+logdir: /dev/null
 logger:
   filter: score|length|fps|ratio|train/loss/|train/rand/
   fps: 10
@@ -229,7 +229,7 @@ replay:
   prio: { exponent: 0.8, initial: inf, maxfrac: 0.5, zero_on_sample: true }
   priosignal: model
   recexp: 1.0
-  size: 5000000.0
+  size: 2500000.0
 replay_context: 1
 replica: 0
 replicas: 1
@@ -241,23 +241,22 @@ run:
   agent_process: false
   debug: false
   duration: 0
-  envs: 16
+  envs: 8
   episode_timeout: 180
-  eval_envs: 2
+  eval_envs: 0
   eval_eps: 1
   from_checkpoint: ""
-  log_every: 120
+  log_every: 150
   logger_addr: localhost:{auto}
   remote_envs: false
   remote_replay: false
   replay_addr: localhost:{auto}
   report_batches: 1
   report_every: 300
-  save_every: 1200
+  save_every: 1800
   steps: 1000000000.0
   train_ratio: 128.0
   usage:
     { gc: false, gputil: false, malloc: false, nvsmi: false, psutil: false }
-script: train
 seed: 0
 task: tournament

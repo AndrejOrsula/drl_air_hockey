@@ -105,16 +105,6 @@ def run(
             from .wrapper_brax import EmbodiedBraxEnvWrapper
 
             _env = EmbodiedBraxEnvWrapper(_env)
-
-        # # TODO: Ensure this is okay to do. It is probably not...
-        # Wrap the environment
-        for name, space in _env.act_space.items():  # type: ignore
-            if not space.discrete:
-                _env = embodied.wrappers.NormalizeAction(_env, name)  # type: ignore
-        _env = embodied.wrappers.UnifyDtypes(_env)  # type: ignore
-        for name, space in _env.act_space.items():  # type: ignore
-            if not space.discrete:
-                _env = embodied.wrappers.ClipAction(_env, name)  # type: ignore
         return _env
 
     def make_agent(config):

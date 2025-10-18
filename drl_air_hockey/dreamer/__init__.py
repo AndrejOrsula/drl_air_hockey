@@ -7,8 +7,3 @@ environ["XLA_FLAGS"] = (
     "--xla_disable_hlo_passes=collective-permute-motion "
     "--xla_gpu_experimental_pipeline_parallelism_opt_level=PIPELINE_PARALLELISM_OPT_LEVEL_ENABLE "
 )
-
-
-# import jax
-
-# jax.config.update("jax_default_matmul_precision", "highest")

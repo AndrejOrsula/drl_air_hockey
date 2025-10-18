@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
 import argparse
-import datetime
 import os
 import shutil
 import sys
 from enum import Enum, auto
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional
+from typing import Callable, Literal, Optional
 
 import numpy
 from air_hockey_challenge.framework import AirHockeyChallengeWrapper
-from baseline.baseline_agent.baseline_agent import BaselineAgent
 from typing_extensions import Self
 
 from drl_air_hockey.agents import agent_from_name
@@ -96,6 +94,10 @@ def run_agent_with_env(
                 zero_agent(**kwargs)
             case "rand":
                 random_agent(**kwargs)
+            case "step":
+                step_agent(**kwargs)
+            case "limit":
+                limit_agent(**kwargs)
             case "train":
                 train_agent(**kwargs)
             case "eval":
@@ -116,6 +118,80 @@ def random_agent(
 
     while True:
         action = env.action_space.sample()
+        observation, reward, done, info = env.step(action)
+        print("\n---")
+        print(f"ACTION\n{action}")
+        print(f"OBS\n{observation}")
+        print(f"REWARD: {reward}")
+        print(f"DONE: {done}")
+        print(f"INFO:\n{info}")
+        if done:
+            env.reset()
+            continue
+
+
+def step_agent(
+    env,
+    **kwargs,
+):
+    env = env()
+    env.reset()
+
+    t = 0
+    while True:
+        if t % 50 == 0:
+            action = env.action_space.sample()
+        t += 1
+        observation, reward, done, info = env.step(action)
+        print("\n---")
+        print(f"ACTION\n{action}")
+        print(f"OBS\n{observation}")
+        print(f"REWARD: {reward}")
+        print(f"DONE: {done}")
+        print(f"INFO:\n{info}")
+        if done:
+            env.reset()
+            continue
+
+
+def limit_agent(
+    env,
+    **kwargs,
+):
+    env = env()
+    env.reset()
+
+    t = 0
+    s = 0
+    while True:
+        if t % 100 == 0:
+            action = env.action_space.sample()
+            if s % 8 == 0:
+                action[0] = -1
+                action[1] = 0
+            elif s % 8 == 1:
+                action[0] = 1
+                action[1] = 0
+            elif s % 8 == 2:
+                action[0] = 0
+                action[1] = 1
+            elif s % 8 == 3:
+                action[0] = 0
+                action[1] = -1
+            elif s % 8 == 4:
+                action[0] = -1
+                action[1] = -1
+            elif s % 8 == 5:
+                action[0] = 1
+                action[1] = -1
+            elif s % 8 == 6:
+                action[0] = -1
+                action[1] = 1
+            elif s % 8 == 7:
+                action[0] = 1
+                action[1] = 1
+            s += 1
+        t += 1
         observation, reward, done, info = env.step(action)
         print("\n---")
         print(f"ACTION\n{action}")
@@ -187,7 +263,8 @@ def _make_env(
     from baseline.baseline_agent.baseline_agent import (
         build_agent as build_baseline_agent,
     )
-    from examples.control.hitting_agent import build_agent as build_hitting_agent
+
+    # from examples.control.hitting_agent import build_agent as build_hitting_agent
 
     if sim == "mujoco":
 
@@ -210,7 +287,7 @@ def _make_env(
 
             env._opponent_models = [
                 build_baseline_agent(env_info=env.env_info, agent_id=2),
-                build_hitting_agent(env_info=env.env_info, agent_id=2),
+                # build_hitting_agent(env_info=env.env_info, agent_id=2),
             ]
             env._num_static_opponents = len(env._opponent_models)
             env._self_play_max_opponent_models = (
@@ -313,25 +390,39 @@ def _make_env(
                                     f"Saved opponent model to {save_model_path} from {latest_model_path}"
                                 )
 
-                            opponent_agent = agent_from_name(f"{agent}_inference")(
-                                env_info=self.env_info,
-                                agent_id=2,
-                                interpolation_order=interpolation_order,
-                                model_path=save_model_path,
-                                cpu=False,
-                            )
-                            self._opponent_models.append(opponent_agent)
-
-                            if (
-                                len(self._opponent_models)
-                                > env._self_play_max_opponent_models
-                            ):
-                                self._opponent_models.pop(
-                                    numpy.random.randint(
-                                        env._num_static_opponents,
-                                        len(self._opponent_models),
+                                if (
+                                    len(self._opponent_models)
+                                    >= env._self_play_max_opponent_models
+                                ):
+                                    self._opponent_models.pop(
+                                        numpy.random.randint(
+                                            env._num_static_opponents,
+                                            len(self._opponent_models),
+                                        )
                                     )
+
+                                opponent_agent = agent_from_name(f"{agent}_inference")(
+                                    env_info=self.env_info,
+                                    agent_id=2,
+                                    interpolation_order=interpolation_order,
+                                    model_path=save_model_path,
+                                    cpu=False,
                                 )
+                                self._opponent_models.append(opponent_agent)
+
+                            elif (
+                                len(self._opponent_models)
+                                < env._self_play_max_opponent_models
+                            ):
+                                opponent_agent = agent_from_name(f"{agent}_inference")(
+                                    env_info=self.env_info,
+                                    agent_id=2,
+                                    interpolation_order=interpolation_order,
+                                    model_path=save_model_path,
+                                    cpu=False,
+                                )
+                                self._opponent_models.append(opponent_agent)
+
                         else:
                             raise FileNotFoundError(
                                 f"Checkpoint directory not found: {checkpoint_dir}"
@@ -394,6 +485,16 @@ def parse_cli_args() -> argparse.Namespace:
         help="Agent with random actions",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    step_agent_parser = agent_subparsers.add_parser(
+        "step",
+        help="Agent with randomly stepped actions",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    limit_agent_parser = agent_subparsers.add_parser(
+        "limit",
+        help="Agent with actions at limits",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     train_agent_parser = agent_subparsers.add_parser(
         "train",
         help="Train agent",
@@ -409,6 +510,8 @@ def parse_cli_args() -> argparse.Namespace:
     for _agent_parser in (
         zero_agent_parser,
         rand_agent_parser,
+        step_agent_parser,
+        limit_agent_parser,
         train_agent_parser,
         eval_agent_parser,
     ):
@@ -517,13 +620,13 @@ def parse_cli_args() -> argparse.Namespace:
         "--self_play_save_model_every_n_episodes",
         help="Save opponent model every N episodes",
         type=int,
-        default=200,
+        default=50,
     )
     train_group.add_argument(
         "--self_play_max_opponent_models",
         help="Maximum number of opponent models to keep",
         type=int,
-        default=3,
+        default=2,
     )
     train_group.add_argument(
         "--self_play_opponent_models_path",

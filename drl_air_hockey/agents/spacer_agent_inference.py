@@ -21,9 +21,7 @@ class SpaceRAgentInference(SpaceRAgent):
         self,
         env_info: Dict[str, Any],
         agent_id: int = 1,
-        model_path: Optional[str] = MODELS_DIR.joinpath(
-            "20250914T215713F016471"
-        ).as_posix(),
+        model_path: Optional[str] = MODELS_DIR.joinpath("TODO").as_posix(),
         cpu: bool = True,
         **kwargs,
     ):
