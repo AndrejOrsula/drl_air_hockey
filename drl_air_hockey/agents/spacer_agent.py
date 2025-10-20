@@ -30,8 +30,10 @@ class SpaceRAgent(AgentBase):
         train_noise_std_action_ee_pos: float = 0.001,
         train_noise_std_action_joint_pos: float = 0.0025 * numpy.pi / 180.0,
         train_noise_std_action_joint_vel: float = 0.0005 * numpy.pi / 180.0,
+        train_noise_std_joint_pos_episode: float = 0.15 * numpy.pi / 180.0,
         train_noise_std_joint_pos: float = 0.1 * numpy.pi / 180.0,
         train_noise_std_joint_vel: float = 0.025 * numpy.pi / 180.0,
+        train_noise_std_puck_pos_episode: float = 0.009,
         train_noise_std_puck_pos: float = 0.006,
         train_noise_std_puck_vel: float = 0.0015,
         ## Training latency
@@ -62,8 +64,10 @@ class SpaceRAgent(AgentBase):
             self.train_noise_std_action_joint_pos = train_noise_std_action_joint_pos
             self.train_noise_std_action_joint_vel = train_noise_std_action_joint_vel
             self.train_noise_std_joint_pos = train_noise_std_joint_pos
+            self.train_noise_std_joint_pos_episode = train_noise_std_joint_pos_episode
             self.train_noise_std_joint_vel = train_noise_std_joint_vel
             self.train_noise_std_puck_pos = train_noise_std_puck_pos
+            self.train_noise_std_puck_pos_episode = train_noise_std_puck_pos_episode
             self.train_noise_std_puck_vel = train_noise_std_puck_vel
             (
                 self.train_min_action_delay,
@@ -107,6 +111,12 @@ class SpaceRAgent(AgentBase):
         self.is_af_initialized = False
         if self.train:
             self.train_is_latency_initialized = False
+            self.train_joint_pos_episode_noise = numpy.random.normal(
+                0.0, self.train_noise_std_joint_pos_episode, size=7
+            )
+            self.train_puck_pos_episode_noise = numpy.random.normal(
+                0.0, self.train_noise_std_puck_pos_episode, size=2
+            )
 
     def process_raw_act(self, action: numpy.ndarray) -> numpy.ndarray:
         action = numpy.clip(action, -1.0, 1.0)
@@ -226,13 +236,16 @@ class SpaceRAgent(AgentBase):
 
         # Apply observation noise if training
         if self.train:
-            self.current_joint_pos += numpy.random.normal(
-                0.0, self.train_noise_std_joint_pos, size=7
+            self.current_joint_pos += (
+                self.train_joint_pos_episode_noise
+                + numpy.random.normal(0.0, self.train_noise_std_joint_pos, size=7)
             )
             self.current_joint_vel += numpy.random.normal(
                 0.0, self.train_noise_std_joint_vel, size=7
             )
-            puck_pos += numpy.random.normal(0.0, self.train_noise_std_puck_pos, size=2)
+            puck_pos += self.train_puck_pos_episode_noise + numpy.random.normal(
+                0.0, self.train_noise_std_puck_pos, size=2
+            )
             puck_vel += numpy.random.normal(0.0, self.train_noise_std_puck_vel, size=2)
 
         # Get EE position using Forward kinematics
