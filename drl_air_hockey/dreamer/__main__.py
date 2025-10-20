@@ -2,6 +2,7 @@
 # PYTHON_ARGCOMPLETE_OK
 import argparse
 import os
+import random
 import shutil
 import sys
 from enum import Enum, auto
@@ -295,9 +296,7 @@ def _make_env(
             ) + env._num_static_opponents
 
             if self_play:
-                env._opponents_dir = logdir / "opponents"
-                env._opponents_dir.mkdir(parents=True, exist_ok=True)
-                env._save_opponent_model_timeout_counter = 0
+                env._opponents_dir = logdir.joinpath("opponents")
 
                 # Load default opponent models from a specified path
                 if self_play_opponent_models_path:
@@ -307,25 +306,53 @@ def _make_env(
                         and default_opponents_path.is_dir()
                     )
                     # Look for directories that are potential models
-                    for model_dir in default_opponents_path.iterdir():
-                        if model_dir.is_dir():
-                            if (
-                                len(env._opponent_models)
-                                > env._self_play_max_opponent_models
-                            ):
-                                print("Reached max number of opponent models.")
-                                break
-                            print(f"Loading default opponent from: {model_dir}")
-                            opponent_agent = agent_from_name(f"{agent}_inference")(
-                                env_info=env.env_info,
-                                agent_id=2,
-                                interpolation_order=interpolation_order,
-                                model_path=model_dir,
-                                cpu=False,
-                            )
-                            env._opponent_models.append(opponent_agent)
+                    opponent_paths = [
+                        p for p in default_opponents_path.iterdir() if p.is_dir()
+                    ]
+                    random.shuffle(opponent_paths)
+                    for model_dir in opponent_paths:
+                        if (
+                            len(env._opponent_models)
+                            > env._self_play_max_opponent_models
+                        ):
+                            print("Reached max number of opponent models.")
+                            break
+                        print(f"Loading default opponent from: {model_dir}")
+                        opponent_agent = agent_from_name(f"{agent}_inference")(
+                            env_info=env.env_info,
+                            agent_id=2,
+                            interpolation_order=interpolation_order,
+                            model_path=model_dir,
+                            cpu=False,
+                        )
+                        env._opponent_models.append(opponent_agent)
+                elif env._opponents_dir.exists():
+                    print(f"Loading default opponent from: {env._opponents_dir}")
+                    opponent_paths = [
+                        p for p in env._opponents_dir.iterdir() if p.is_dir()
+                    ]
+                    random.shuffle(opponent_paths)
+                    for model_dir in env._opponents_dir.iterdir():
+                        if (
+                            len(env._opponent_models)
+                            > env._self_play_max_opponent_models
+                        ):
+                            print("Reached max number of opponent models.")
+                            break
+                        print(f"Loading default opponent from: {model_dir}")
+                        opponent_agent = agent_from_name(f"{agent}_inference")(
+                            env_info=env.env_info,
+                            agent_id=2,
+                            interpolation_order=interpolation_order,
+                            model_path=model_dir,
+                            cpu=False,
+                        )
+                        env._opponent_models.append(opponent_agent)
                 else:
                     print("No default opponent models path provided.")
+
+                env._opponents_dir.mkdir(parents=True, exist_ok=True)
+                env._save_opponent_model_timeout_counter = 0
 
             env._agent_2 = numpy.random.choice(env._opponent_models)
 
