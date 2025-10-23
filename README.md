@@ -1,12 +1,8 @@
 # Air Hockey with Deep Reinforcement Learning
 
-<p align="left">
-  <a href="https://github.com/AndrejOrsula/drl_air_hockey/actions/workflows/docker.yml"> <img alt="Docker" src="https://github.com/AndrejOrsula/drl_air_hockey/actions/workflows/docker.yml/badge.svg"></a>
-</p>
+Participant repository for the [Robot Air Hockey Challenge 2023](https://air-hockey-challenge.robot-learning.net/old-challenge/home).
 
-This is a participant repository for the [Robot Air Hockey Challenge 2023](https://air-hockey-challenge.robot-learning.net).
-
-https://github.com/AndrejOrsula/drl_air_hockey/assets/22929099/68b39c9c-2d18-4eae-99e4-58670fb29e2c
+https://github.com/user-attachments/assets/42e01ba7-e815-45d3-a529-f1d2f05ea328
 
 ## Overview
 

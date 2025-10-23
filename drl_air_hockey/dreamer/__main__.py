@@ -265,8 +265,6 @@ def _make_env(
         build_agent as build_baseline_agent,
     )
 
-    # from examples.control.hitting_agent import build_agent as build_hitting_agent
-
     if sim == "mujoco":
 
         def __impl_mujoco():
@@ -288,7 +286,6 @@ def _make_env(
 
             env._opponent_models = [
                 build_baseline_agent(env_info=env.env_info, agent_id=2),
-                # build_hitting_agent(env_info=env.env_info, agent_id=2),
             ]
             env._num_static_opponents = len(env._opponent_models)
             env._self_play_max_opponent_models = (
@@ -299,21 +296,22 @@ def _make_env(
                 env._opponents_dir = logdir.joinpath("opponents")
 
                 # Load default opponent models from a specified path
-                if self_play_opponent_models_path:
-                    default_opponents_path = Path(self_play_opponent_models_path)
-                    assert (
-                        default_opponents_path.exists()
-                        and default_opponents_path.is_dir()
-                    )
+                if (
+                    self_play_opponent_models_path
+                    and Path(self_play_opponent_models_path).exists()
+                    and Path(self_play_opponent_models_path).is_dir()
+                ):
                     # Look for directories that are potential models
                     opponent_paths = [
-                        p for p in default_opponents_path.iterdir() if p.is_dir()
+                        p
+                        for p in Path(self_play_opponent_models_path).iterdir()
+                        if p.is_dir()
                     ]
                     random.shuffle(opponent_paths)
                     for model_dir in opponent_paths:
                         if (
                             len(env._opponent_models)
-                            > env._self_play_max_opponent_models
+                            >= env._self_play_max_opponent_models
                         ):
                             print("Reached max number of opponent models.")
                             break
@@ -326,6 +324,7 @@ def _make_env(
                             cpu=False,
                         )
                         env._opponent_models.append(opponent_agent)
+
                 elif env._opponents_dir.exists():
                     print(f"Loading default opponent from: {env._opponents_dir}")
                     opponent_paths = [
@@ -335,7 +334,7 @@ def _make_env(
                     for model_dir in env._opponents_dir.iterdir():
                         if (
                             len(env._opponent_models)
-                            > env._self_play_max_opponent_models
+                            >= env._self_play_max_opponent_models
                         ):
                             print("Reached max number of opponent models.")
                             break
